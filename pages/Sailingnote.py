@@ -3,679 +3,745 @@
 import streamlit as st
 import pandas as pd
 import os
-from datetime import date, timedelta
+from datetime import datetime, date
 
 
-# ============================================================
+# =========================================================
 # 기본 설정
-# ============================================================
+# =========================================================
 
-st.set_page_config(
-    page_title="항해일지",
-    page_icon="⚓",
-    layout="wide",
-)
-
-
-# log.csv 위치
 LOG_FILE = "log.csv"
 
 
-# ============================================================
-# 디자인 CSS
-# ============================================================
+# =========================================================
+# 페이지 디자인
+# =========================================================
 
 st.markdown(
     """
     <style>
+
     /* 전체 배경 */
     .stApp {
-        background:
-            radial-gradient(
-                circle at 50% -20%,
-                rgba(184, 146, 61, 0.10),
-                transparent 38%
-            ),
-            #071321;
-        color: #E8E2D5;
+        background-color: #07111f;
+        color: #f4efe2;
     }
 
-    /* 전체 콘텐츠 폭 */
+    /* 본문 너비 */
     .block-container {
-        max-width: 1100px;
-        padding-top: 2.5rem;
+        max-width: 1150px;
+        padding-top: 3rem;
         padding-bottom: 4rem;
     }
 
     /* 제목 */
-    h1, h2, h3 {
-        color: #E8E2D5 !important;
-        letter-spacing: -0.02em;
+    .page-title {
+        color: #d8b66a;
+        font-size: 3rem;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        margin-bottom: 5px;
     }
 
-    /* 상단 작은 제목 */
-    .page-label {
-        color: #C7A65A;
-        font-size: 0.78rem;
-        letter-spacing: 0.28em;
-        text-transform: uppercase;
-        margin-bottom: 0.4rem;
-    }
-
-    .subtitle {
-        color: #9CA9B7;
-        font-size: 0.95rem;
-        margin-bottom: 2rem;
-    }
-
-    /* 골드 라인 */
-    .gold-line {
-        height: 1px;
-        background: linear-gradient(
-            90deg,
-            transparent,
-            #B8954A,
-            transparent
-        );
-        margin: 1rem 0 2rem 0;
+    .page-subtitle {
+        color: #9daaba;
+        font-size: 1rem;
+        margin-bottom: 35px;
     }
 
     /* 통계 카드 */
-    div[data-testid="stMetric"] {
-        background: rgba(13, 29, 47, 0.92);
-        border: 1px solid rgba(199, 166, 90, 0.24);
-        border-radius: 14px;
-        padding: 1rem;
+    .stat-card {
+        background: #0d1b2a;
+        border: 1px solid #33485e;
+        border-radius: 15px;
+        padding: 22px;
+        height: 130px;
     }
 
-    div[data-testid="stMetricLabel"] {
-        color: #8F9BA8 !important;
-    }
-
-    div[data-testid="stMetricValue"] {
-        color: #E8D09A !important;
-    }
-
-    /* 섹션 카드 */
-    .section-card {
-        background: rgba(10, 24, 39, 0.88);
-        border: 1px solid rgba(199, 166, 90, 0.18);
-        border-radius: 16px;
-        padding: 1.4rem;
-        margin-top: 1rem;
-        margin-bottom: 1rem;
-    }
-
-    .section-description {
-        color: #8F9BA8;
+    .stat-title {
+        color: #9daaba;
         font-size: 0.85rem;
-        margin-top: -0.5rem;
-        margin-bottom: 1rem;
+        margin-bottom: 10px;
+        letter-spacing: 0.08em;
     }
 
-    /* 안내문 */
-    .empty-box {
-        background: rgba(13, 29, 47, 0.92);
-        border: 1px solid rgba(199, 166, 90, 0.25);
-        border-radius: 16px;
-        padding: 2rem;
-        text-align: center;
-        color: #B9C2CC;
-        margin-top: 2rem;
+    .stat-value {
+        color: #f1d58b;
+        font-size: 1.8rem;
+        font-weight: 700;
     }
 
-    .empty-title {
-        color: #E8D09A;
-        font-size: 1.2rem;
-        margin-bottom: 0.5rem;
+    /* 섹션 제목 */
+    .section-title {
+        color: #d8b66a;
+        font-size: 1.35rem;
+        font-weight: 700;
+        margin-top: 35px;
+        margin-bottom: 15px;
     }
 
-    /* 작은 설명 */
-    .small-note {
-        color: #788696;
-        font-size: 0.78rem;
+    /* 오늘의 항해 */
+    .today-card {
+        background: #0b1928;
+        border: 1px solid #8e743d;
+        border-radius: 15px;
+        padding: 25px;
+        margin-top: 20px;
     }
 
-    /* dataframe 글자 */
+    .today-label {
+        color: #9daaba;
+        font-size: 0.85rem;
+        margin-bottom: 8px;
+    }
+
+    .today-value {
+        color: #f4efe2;
+        font-size: 1.4rem;
+        font-weight: 600;
+    }
+
+    /* 구분선 */
+    hr {
+        border-color: #26384a !important;
+        margin-top: 30px;
+        margin-bottom: 30px;
+    }
+
+    /* 데이터프레임 */
     [data-testid="stDataFrame"] {
-        border-radius: 12px;
-        overflow: hidden;
+        border: 1px solid #26384a;
+        border-radius: 10px;
     }
+
     </style>
     """,
-    unsafe_allow_html=True,
+    unsafe_allow_html=True
 )
 
 
-# ============================================================
-# 함수
-# ============================================================
-
-def load_log():
-    """
-    log.csv를 읽어오는 함수.
-    파일이 없거나 읽는 데 문제가 있으면 빈 DataFrame을 반환한다.
-    """
-
-    required_columns = [
-        "날짜",
-        "모드",
-        "시작시각",
-        "종료시각",
-        "소요시간(분)",
-        "전진거리(해리)",
-    ]
-
-    if not os.path.exists(LOG_FILE):
-        return pd.DataFrame(columns=required_columns)
-
-    try:
-        df = pd.read_csv(
-            LOG_FILE,
-            encoding="utf-8-sig",
-        )
-
-        # 필요한 컬럼이 빠져 있다면 빈 값으로 추가
-        for column in required_columns:
-            if column not in df.columns:
-                df[column] = None
-
-        df = df[required_columns].copy()
-
-        return df
-
-    except Exception:
-        return pd.DataFrame(columns=required_columns)
-
-
-def calculate_longest_streak(date_series):
-    """
-    공부 기록이 하루도 빠지지 않고 이어진
-    가장 긴 연속 공부일을 계산한다.
-    """
-
-    if len(date_series) == 0:
-        return 0
-
-    # 날짜 중복 제거 후 정렬
-    dates = sorted(
-        set(
-            pd.to_datetime(
-                date_series,
-                errors="coerce",
-            ).dropna().dt.date
-        )
-    )
-
-    if not dates:
-        return 0
-
-    longest = 1
-    current = 1
-
-    for i in range(1, len(dates)):
-        difference = (
-            dates[i] - dates[i - 1]
-        ).days
-
-        if difference == 1:
-            current += 1
-        else:
-            current = 1
-
-        longest = max(longest, current)
-
-    return longest
-
-
-def prepare_dataframe(df):
-    """
-    숫자/날짜 컬럼을 계산하기 편한 형태로 변환한다.
-    """
-
-    if df.empty:
-        return df
-
-    df = df.copy()
-
-    # 날짜 변환
-    df["날짜"] = pd.to_datetime(
-        df["날짜"],
-        errors="coerce",
-    ).dt.date
-
-    # 시작/종료 시각 변환
-    df["시작시각_계산용"] = pd.to_datetime(
-        df["시작시각"],
-        errors="coerce",
-    )
-
-    df["종료시각_계산용"] = pd.to_datetime(
-        df["종료시각"],
-        errors="coerce",
-    )
-
-    # 숫자로 변환
-    df["소요시간(분)"] = pd.to_numeric(
-        df["소요시간(분)"],
-        errors="coerce",
-    ).fillna(0)
-
-    df["전진거리(해리)"] = pd.to_numeric(
-        df["전진거리(해리)"],
-        errors="coerce",
-    ).fillna(0)
-
-    # 날짜가 없는 잘못된 행 제거
-    df = df.dropna(subset=["날짜"])
-
-    return df
-
-
-def make_daily_table(df):
-    """
-    날짜별 통계를 만든다.
-    """
-
-    if df.empty:
-        return pd.DataFrame()
-
-    daily = (
-        df.groupby("날짜")
-        .agg(
-            그날총공부시간분=(
-                "소요시간(분)",
-                "sum",
-            ),
-            그날시작시각=(
-                "시작시각_계산용",
-                "min",
-            ),
-            그날종료시각=(
-                "종료시각_계산용",
-                "max",
-            ),
-            그날최대집중시간분=(
-                "소요시간(분)",
-                "max",
-            ),
-            그날총전진거리해리=(
-                "전진거리(해리)",
-                "sum",
-            ),
-        )
-        .reset_index()
-    )
-
-    # 최신 날짜가 위로 오도록 정렬
-    daily = daily.sort_values(
-        "날짜",
-        ascending=False,
-    )
-
-    # 화면에 보여줄 이름으로 변경
-    daily = daily.rename(
-        columns={
-            "날짜": "날짜",
-            "그날총공부시간분": "총 공부시간(분)",
-            "그날시작시각": "시작시각",
-            "그날종료시각": "종료시각",
-            "그날최대집중시간분": "최대 집중시간(분)",
-            "그날총전진거리해리": "총 전진거리(해리)",
-        }
-    )
-
-    # 시각을 보기 편하게 변경
-    daily["시작시각"] = daily["시작시각"].dt.strftime(
-        "%Y-%m-%d %H:%M"
-    )
-
-    daily["종료시각"] = daily["종료시각"].dt.strftime(
-        "%Y-%m-%d %H:%M"
-    )
-
-    # 숫자 정리
-    daily["총 공부시간(분)"] = daily[
-        "총 공부시간(분)"
-    ].round(1)
-
-    daily["최대 집중시간(분)"] = daily[
-        "최대 집중시간(분)"
-    ].round(1)
-
-    daily["총 전진거리(해리)"] = daily[
-        "총 전진거리(해리)"
-    ].round(1)
-
-    return daily
-
-
-# ============================================================
-# 데이터 불러오기
-# ============================================================
-
-df = load_log()
-
-df = prepare_dataframe(df)
-
-
-# ============================================================
-# 헤더
-# ============================================================
+# =========================================================
+# 제목
+# =========================================================
 
 st.markdown(
-    '<div class="page-label">SAILING NOTE</div>',
-    unsafe_allow_html=True,
-)
-
-st.title("⚓ 항해일지")
-
-st.markdown(
-    """
-    <div class="subtitle">
-        지금까지의 공부 항로를 돌아보고,
-        얼마나 멀리 항해했는지 확인해 보세요.
-    </div>
-    """,
-    unsafe_allow_html=True,
+    '<div class="page-title">⚓ SAILING LOG</div>',
+    unsafe_allow_html=True
 )
 
 st.markdown(
-    '<div class="gold-line"></div>',
-    unsafe_allow_html=True,
+    '<div class="page-subtitle">'
+    '지금까지의 공부 항해를 한눈에 확인하는 항해일지'
+    '</div>',
+    unsafe_allow_html=True
 )
 
 
-# ============================================================
-# 기록이 하나도 없는 경우
-# ============================================================
+# =========================================================
+# log.csv 읽기
+# =========================================================
 
-if df.empty:
+if not os.path.exists(LOG_FILE):
 
     st.markdown(
         """
-        <div class="empty-box">
-            <div class="empty-title">
-                ⚓ 아직 기록이 없어요.
+        <div class="today-card">
+
+            <div class="today-label">
+                LOGBOOK
             </div>
 
-            오늘의 항해를 먼저 시작해보세요!
-            <br><br>
+            <div class="today-value">
+                ⚓ 아직 항해 기록이 없습니다.
+            </div>
 
-            <span class="small-note">
-                공부 세션을 완료하고
-                「항해일지에 기록하기」를 누르면
-                이곳에 기록이 쌓입니다.
-            </span>
+            <div style="
+                color:#9daaba;
+                margin-top:10px;
+                line-height:1.7;
+            ">
+                메인 페이지에서 공부를 시작하면<br>
+                이곳에 항해 기록이 자동으로 쌓입니다.
+            </div>
+
         </div>
         """,
-        unsafe_allow_html=True,
+        unsafe_allow_html=True
     )
 
     st.stop()
 
 
-# ============================================================
-# 상단 요약 지표
-# ============================================================
+try:
 
-st.subheader("⚓ 항해 기록 요약")
+    df = pd.read_csv(
+        LOG_FILE,
+        encoding="utf-8-sig"
+    )
 
-total_distance = df[
+except Exception as e:
+
+    st.error(
+        "항해일지 파일을 읽는 중 문제가 발생했습니다."
+    )
+
+    st.caption(
+        f"오류 내용: {e}"
+    )
+
+    st.stop()
+
+
+# =========================================================
+# 기록이 비어 있는 경우
+# =========================================================
+
+if df.empty:
+
+    st.markdown(
+        """
+        <div class="today-card">
+
+            <div class="today-label">
+                LOGBOOK
+            </div>
+
+            <div class="today-value">
+                ⚓ 아직 항해 기록이 없습니다.
+            </div>
+
+            <div style="
+                color:#9daaba;
+                margin-top:10px;
+            ">
+                메인 페이지에서 공부를 시작해보세요.
+            </div>
+
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+    st.stop()
+
+
+# =========================================================
+# 데이터 정리
+# =========================================================
+
+required_columns = [
+    "날짜",
+    "모드",
+    "시작시각",
+    "종료시각",
+    "소요시간(분)",
     "전진거리(해리)"
-].sum()
-
-total_study_days = df[
-    "날짜"
-].nunique()
-
-longest_streak = calculate_longest_streak(
-    df["날짜"]
-)
-
-longest_session = df[
-    "소요시간(분)"
-].max()
-
-
-metric1, metric2, metric3, metric4 = st.columns(4)
-
-with metric1:
-    st.metric(
-        label="총 누적 항해 거리",
-        value=f"{total_distance:,.1f} 해리",
-    )
-
-with metric2:
-    st.metric(
-        label="총 공부일수",
-        value=f"{total_study_days:,}일",
-    )
-
-with metric3:
-    st.metric(
-        label="최장 연속 기록일",
-        value=f"{longest_streak:,}일",
-    )
-
-with metric4:
-    st.metric(
-        label="최대 집중시간",
-        value=f"{longest_session:,.1f}분",
-    )
-
-
-# ============================================================
-# 날짜별 기록
-# ============================================================
-
-st.markdown(
-    '<div class="gold-line"></div>',
-    unsafe_allow_html=True,
-)
-
-st.subheader("⚓ 날짜별 항해 기록")
-
-st.markdown(
-    """
-    <div class="section-description">
-        같은 날의 여러 세션은 하나의 항해 기록으로 합산됩니다.
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
-
-daily_df = make_daily_table(df)
-
-st.dataframe(
-    daily_df,
-    use_container_width=True,
-    hide_index=True,
-    column_config={
-        "날짜": st.column_config.DateColumn(
-            "날짜",
-            format="YYYY-MM-DD",
-        ),
-        "총 공부시간(분)": st.column_config.NumberColumn(
-            "총 공부시간(분)",
-            format="%.1f",
-        ),
-        "최대 집중시간(분)": st.column_config.NumberColumn(
-            "최대 집중시간(분)",
-            format="%.1f",
-        ),
-        "총 전진거리(해리)": st.column_config.NumberColumn(
-            "총 전진거리(해리)",
-            format="%.1f",
-        ),
-    },
-)
-
-
-# ============================================================
-# 최근 14일 공부 추이
-# ============================================================
-
-st.markdown(
-    '<div class="gold-line"></div>',
-    unsafe_allow_html=True,
-)
-
-st.subheader("⚓ 최근 14일 항해 추이")
-
-st.markdown(
-    """
-    <div class="section-description">
-        최근 14일 동안 하루에 얼마나 공부했는지 보여줍니다.
-        기록이 없는 날은 0분으로 표시됩니다.
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
-
-
-today = date.today()
-
-recent_dates = [
-    today - timedelta(days=i)
-    for i in range(13, -1, -1)
 ]
 
-# 날짜별 공부시간 합계
-daily_minutes = (
-    df.groupby("날짜")["소요시간(분)"]
-    .sum()
-)
 
-chart_data = pd.DataFrame(
-    {
-        "날짜": recent_dates,
-        "공부시간(분)": [
-            daily_minutes.get(
-                target_date,
-                0,
-            )
-            for target_date in recent_dates
-        ],
-    }
-)
-
-chart_data = chart_data.set_index("날짜")
-
-st.bar_chart(
-    chart_data,
-    y="공부시간(분)",
-    use_container_width=True,
-)
-
-
-# ============================================================
-# 모드별 공부시간 비중
-# ============================================================
-
-st.markdown(
-    '<div class="gold-line"></div>',
-    unsafe_allow_html=True,
-)
-
-st.subheader("⚓ 항해 방식별 공부시간")
-
-st.markdown(
-    """
-    <div class="section-description">
-        지금까지 기록한 공부시간이 어떤 항해 방식으로 이루어졌는지 보여줍니다.
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
-
-
-mode_order = [
-    "자유형",
-    "지정",
-    "뽀모도로",
+# 필요한 열이 없는 경우
+missing_columns = [
+    column
+    for column in required_columns
+    if column not in df.columns
 ]
 
-mode_data = (
-    df.groupby("모드")["소요시간(분)"]
-    .sum()
-    .reindex(
-        mode_order,
-        fill_value=0,
+
+if missing_columns:
+
+    st.error("log.csv의 형식이 예상과 다릅니다.")
+
+    st.write(
+        "없는 열:",
+        ", ".join(missing_columns)
+    )
+
+    st.stop()
+
+
+# 날짜
+df["날짜"] = pd.to_datetime(
+    df["날짜"],
+    errors="coerce"
+).dt.date
+
+
+# 숫자
+df["소요시간(분)"] = pd.to_numeric(
+    df["소요시간(분)"],
+    errors="coerce"
+).fillna(0)
+
+
+df["전진거리(해리)"] = pd.to_numeric(
+    df["전진거리(해리)"],
+    errors="coerce"
+).fillna(0)
+
+
+# 잘못된 날짜 제거
+df = df.dropna(
+    subset=["날짜"]
+).copy()
+
+
+if df.empty:
+    st.warning("정상적인 날짜가 포함된 항해 기록이 없습니다.")
+    st.stop()
+
+
+# =========================================================
+# 기본 통계
+# =========================================================
+
+total_minutes = df["소요시간(분)"].sum()
+
+total_distance = df["전진거리(해리)"].sum()
+
+total_sessions = len(df)
+
+total_days = df["날짜"].nunique()
+
+longest_session = df["소요시간(분)"].max()
+
+average_session = df["소요시간(분)"].mean()
+
+
+# =========================================================
+# 시간 표시 함수
+# =========================================================
+
+def format_minutes(minutes):
+
+    minutes = int(round(minutes))
+
+    hours = minutes // 60
+    mins = minutes % 60
+
+    if hours > 0:
+        return f"{hours}시간 {mins}분"
+
+    return f"{mins}분"
+
+
+# =========================================================
+# 상단 통계
+# =========================================================
+
+st.markdown(
+    '<div class="section-title">✦ 항해 기록</div>',
+    unsafe_allow_html=True
+)
+
+
+col1, col2, col3, col4 = st.columns(4)
+
+
+with col1:
+
+    st.markdown(
+        f"""
+        <div class="stat-card">
+
+            <div class="stat-title">
+                TOTAL STUDY
+            </div>
+
+            <div class="stat-value">
+                {format_minutes(total_minutes)}
+            </div>
+
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+
+with col2:
+
+    st.markdown(
+        f"""
+        <div class="stat-card">
+
+            <div class="stat-title">
+                VOYAGE DISTANCE
+            </div>
+
+            <div class="stat-value">
+                {total_distance:,.1f} NM
+            </div>
+
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+
+with col3:
+
+    st.markdown(
+        f"""
+        <div class="stat-card">
+
+            <div class="stat-title">
+                STUDY DAYS
+            </div>
+
+            <div class="stat-value">
+                {total_days}일
+            </div>
+
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+
+with col4:
+
+    st.markdown(
+        f"""
+        <div class="stat-card">
+
+            <div class="stat-title">
+                VOYAGES
+            </div>
+
+            <div class="stat-value">
+                {total_sessions}회
+            </div>
+
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+
+# =========================================================
+# 가장 긴 집중
+# =========================================================
+
+st.markdown(
+    '<div class="section-title">🧭 나의 항해 기록</div>',
+    unsafe_allow_html=True
+)
+
+
+col1, col2 = st.columns(2)
+
+
+with col1:
+
+    st.markdown(
+        f"""
+        <div class="today-card">
+
+            <div class="today-label">
+                LONGEST VOYAGE
+            </div>
+
+            <div class="today-value">
+                {format_minutes(longest_session)}
+            </div>
+
+            <div style="
+                color:#9daaba;
+                margin-top:8px;
+            ">
+                가장 오래 집중한 한 번의 항해
+            </div>
+
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+
+with col2:
+
+    st.markdown(
+        f"""
+        <div class="today-card">
+
+            <div class="today-label">
+                AVERAGE VOYAGE
+            </div>
+
+            <div class="today-value">
+                {format_minutes(average_session)}
+            </div>
+
+            <div style="
+                color:#9daaba;
+                margin-top:8px;
+            ">
+                한 번의 항해에서 평균적으로 공부한 시간
+            </div>
+
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+
+# =========================================================
+# 날짜별 공부 기록
+# =========================================================
+
+st.markdown(
+    '<div class="section-title">📅 날짜별 항해 기록</div>',
+    unsafe_allow_html=True
+)
+
+
+daily = (
+    df.groupby("날짜")
+    .agg(
+        공부시간=("소요시간(분)", "sum"),
+        항해횟수=("모드", "count"),
+        전진거리=("전진거리(해리)", "sum")
     )
     .reset_index()
 )
 
-mode_data.columns = [
-    "모드",
-    "누적 공부시간(분)",
+
+daily = daily.sort_values(
+    "날짜",
+    ascending=False
+)
+
+
+daily_display = daily.copy()
+
+
+daily_display["날짜"] = daily_display[
+    "날짜"
+].apply(
+    lambda x: x.strftime("%Y-%m-%d")
+)
+
+
+daily_display["공부시간"] = daily_display[
+    "공부시간"
+].apply(format_minutes)
+
+
+daily_display["전진거리"] = daily_display[
+    "전진거리"
+].apply(
+    lambda x: f"{x:,.1f} NM"
+)
+
+
+daily_display.columns = [
+    "날짜",
+    "공부시간",
+    "항해횟수",
+    "전진거리"
 ]
 
-mode_data["누적 공부시간(분)"] = (
-    mode_data["누적 공부시간(분)"]
-    .round(1)
+
+st.dataframe(
+    daily_display,
+    use_container_width=True,
+    hide_index=True
 )
 
-total_mode_minutes = mode_data[
-    "누적 공부시간(분)"
-].sum()
 
-if total_mode_minutes > 0:
-    mode_data["비중"] = (
-        mode_data["누적 공부시간(분)"]
-        / total_mode_minutes
-        * 100
-    ).round(1)
-else:
-    mode_data["비중"] = 0
-
-
-left, right = st.columns([1, 1.5])
-
-with left:
-
-    display_mode = mode_data.copy()
-
-    display_mode["비중"] = (
-        display_mode["비중"]
-        .map(lambda x: f"{x:.1f}%")
-    )
-
-    st.dataframe(
-        display_mode,
-        use_container_width=True,
-        hide_index=True,
-    )
-
-
-with right:
-
-    mode_chart = mode_data[
-        ["모드", "누적 공부시간(분)"]
-    ].set_index("모드")
-
-    st.bar_chart(
-        mode_chart,
-        y="누적 공부시간(분)",
-        use_container_width=True,
-    )
-
-
-# ============================================================
-# 하단 안내
-# ============================================================
+# =========================================================
+# 최근 14일 공부량
+# =========================================================
 
 st.markdown(
-    '<div class="gold-line"></div>',
-    unsafe_allow_html=True,
+    '<div class="section-title">🌊 최근 항해 흐름</div>',
+    unsafe_allow_html=True
 )
+
+
+latest_date = max(df["날짜"])
+
+start_date = latest_date
+
+
+recent_days = pd.date_range(
+    end=pd.Timestamp(latest_date),
+    periods=14,
+    freq="D"
+).date
+
+
+recent_df = (
+    df[df["날짜"].isin(recent_days)]
+    .groupby("날짜")["소요시간(분)"]
+    .sum()
+)
+
+
+chart_df = pd.DataFrame(
+    index=recent_days
+)
+
+
+chart_df["공부시간(분)"] = [
+    recent_df.get(day, 0)
+    for day in recent_days
+]
+
+
+chart_df.index = [
+    day.strftime("%m/%d")
+    for day in chart_df.index
+]
+
+
+st.bar_chart(
+    chart_df,
+    use_container_width=True
+)
+
+
+# =========================================================
+# 공부 모드 분석
+# =========================================================
+
+st.markdown(
+    '<div class="section-title">⚓ 항해 방식</div>',
+    unsafe_allow_html=True
+)
+
+
+mode_df = (
+    df.groupby("모드")
+    .agg(
+        항해횟수=("모드", "count"),
+        공부시간=("소요시간(분)", "sum"),
+        전진거리=("전진거리(해리)", "sum")
+    )
+    .reset_index()
+)
+
+
+mode_display = mode_df.copy()
+
+
+mode_display["공부시간"] = mode_display[
+    "공부시간"
+].apply(format_minutes)
+
+
+mode_display["전진거리"] = mode_display[
+    "전진거리"
+].apply(
+    lambda x: f"{x:,.1f} NM"
+)
+
+
+mode_display.columns = [
+    "항해 방식",
+    "항해 횟수",
+    "공부시간",
+    "전진거리"
+]
+
+
+st.dataframe(
+    mode_display,
+    use_container_width=True,
+    hide_index=True
+)
+
+
+# =========================================================
+# 모드별 차트
+# =========================================================
+
+mode_chart = mode_df.set_index("모드")[
+    ["공부시간"]
+]
+
+
+st.bar_chart(
+    mode_chart,
+    use_container_width=True
+)
+
+
+# =========================================================
+# 상세 항해 기록
+# =========================================================
+
+st.markdown(
+    '<div class="section-title">📖 전체 항해일지</div>',
+    unsafe_allow_html=True
+)
+
+
+detail_df = df.copy()
+
+
+detail_df = detail_df.sort_values(
+    ["날짜", "시작시각"],
+    ascending=[False, False]
+)
+
+
+detail_df["날짜"] = detail_df[
+    "날짜"
+].apply(
+    lambda x: x.strftime("%Y-%m-%d")
+)
+
+
+detail_df["소요시간(분)"] = detail_df[
+    "소요시간(분)"
+].apply(
+    lambda x: f"{x:.0f}분"
+)
+
+
+detail_df["전진거리(해리)"] = detail_df[
+    "전진거리(해리)"
+].apply(
+    lambda x: f"{x:.1f} NM"
+)
+
+
+detail_df = detail_df[
+    [
+        "날짜",
+        "모드",
+        "시작시각",
+        "종료시각",
+        "소요시간(분)",
+        "전진거리(해리)"
+    ]
+]
+
+
+st.dataframe(
+    detail_df,
+    use_container_width=True,
+    hide_index=True
+)
+
+
+# =========================================================
+# 마지막 문구
+# =========================================================
+
+st.markdown("---")
 
 st.markdown(
     """
-    <div class="small-note">
-        항해일지는 main.py에서 「항해일지에 기록하기」를
-        누른 세션을 기준으로 계산됩니다.
+    <div style="
+        text-align:center;
+        color:#718095;
+        padding:20px;
+        line-height:1.8;
+    ">
+        ⚓ Every minute is one nautical mile.<br>
+        오늘의 항해가 내일의 목적지가 됩니다.
     </div>
     """,
-    unsafe_allow_html=True,
+    unsafe_allow_html=True
 )
