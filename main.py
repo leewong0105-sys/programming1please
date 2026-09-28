@@ -1,681 +1,1002 @@
-# pages/Sailingnote.py
+# main.py
 
 import streamlit as st
 import pandas as pd
+import math
 import os
-from datetime import date, timedelta
+from datetime import datetime, timedelta, timezone
 
 
-# ============================================================
+# =========================================================
 # 기본 설정
-# ============================================================
+# =========================================================
 
 st.set_page_config(
-    page_title="항해일지",
-    page_icon="⚓",
+    page_title="Celestial Logbook",
+    page_icon="✦",
     layout="wide",
+    initial_sidebar_state="expanded"
 )
 
 
-# log.csv 위치
+# =========================================================
+# 한국 시간
+# =========================================================
+
+KST = timezone(timedelta(hours=9))
+
+
+def get_kst_now():
+    """현재 한국 시간을 반환"""
+    return datetime.now(KST)
+
+
+# =========================================================
+# 데이터 설정
+# =========================================================
+
 LOG_FILE = "log.csv"
 
+# 공부 1분 = 1해리
+NAUTICAL_MILES_PER_MINUTE = 1.0
 
-# ============================================================
-# 디자인 CSS
-# ============================================================
+
+# =========================================================
+# 항해 목적지
+# =========================================================
+
+DESTINATIONS = {
+    "도쿄": {
+        "country": "일본",
+        "lat": 35.6762,
+        "lon": 139.6503
+    },
+    "상하이": {
+        "country": "중국",
+        "lat": 31.2304,
+        "lon": 121.4737
+    },
+    "싱가포르": {
+        "country": "싱가포르",
+        "lat": 1.3521,
+        "lon": 103.8198
+    },
+    "시드니": {
+        "country": "호주",
+        "lat": -33.8688,
+        "lon": 151.2093
+    },
+    "호놀룰루": {
+        "country": "미국",
+        "lat": 21.3069,
+        "lon": -157.8583
+    },
+    "밴쿠버": {
+        "country": "캐나다",
+        "lat": 49.2827,
+        "lon": -123.1207
+    },
+    "로스앤젤레스": {
+        "country": "미국",
+        "lat": 34.0522,
+        "lon": -118.2437
+    },
+    "런던": {
+        "country": "영국",
+        "lat": 51.5074,
+        "lon": -0.1278
+    },
+    "파리": {
+        "country": "프랑스",
+        "lat": 48.8566,
+        "lon": 2.3522
+    },
+    "뉴욕": {
+        "country": "미국",
+        "lat": 40.7128,
+        "lon": -74.0060
+    }
+}
+
+
+# =========================================================
+# 뽀모도로 항로
+# =========================================================
+
+POMODORO_ROUTE = [
+    "부산",
+    "울산",
+    "포항",
+    "동해",
+    "속초"
+]
+
+
+# =========================================================
+# 별자리
+# =========================================================
+
+CONSTELLATIONS = {
+    1: "오리온자리",
+    2: "큰개자리",
+    3: "쌍둥이자리",
+    4: "사자자리",
+    5: "처녀자리",
+    6: "목동자리",
+    7: "전갈자리",
+    8: "궁수자리",
+    9: "백조자리",
+    10: "페가수스자리",
+    11: "황소자리",
+    12: "마차부자리"
+}
+
+
+# =========================================================
+# 해리 계산
+# =========================================================
+
+def haversine_nm(lat1, lon1, lat2, lon2):
+    """
+    두 지점 사이의 거리를 해리(NM)로 계산
+    """
+
+    R = 6371.0  # 지구 반지름(km)
+
+    lat1 = math.radians(lat1)
+    lon1 = math.radians(lon1)
+    lat2 = math.radians(lat2)
+    lon2 = math.radians(lon2)
+
+    dlat = lat2 - lat1
+    dlon = lon2 - lon1
+
+    a = (
+        math.sin(dlat / 2) ** 2
+        + math.cos(lat1)
+        * math.cos(lat2)
+        * math.sin(dlon / 2) ** 2
+    )
+
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+    km = R * c
+
+    # 1해리 = 1.852km
+    nm = km / 1.852
+
+    return nm
+
+
+# =========================================================
+# 부산 기준 목적지 거리
+# =========================================================
+
+BUSAN_LAT = 35.1796
+BUSAN_LON = 129.0756
+
+
+def get_destination_distance(destination):
+    """부산에서 목적지까지의 거리를 해리로 계산"""
+
+    info = DESTINATIONS[destination]
+
+    return haversine_nm(
+        BUSAN_LAT,
+        BUSAN_LON,
+        info["lat"],
+        info["lon"]
+    )
+
+
+# =========================================================
+# 달의 위상
+# =========================================================
+
+def get_moon_phase(date_value):
+    """
+    날짜를 기준으로 대략적인 달의 위상을 계산
+    """
+
+    reference = datetime(2000, 1, 6)
+    target = datetime(
+        date_value.year,
+        date_value.month,
+        date_value.day
+    )
+
+    days = (target - reference).days
+
+    synodic_month = 29.53058867
+
+    phase = (days % synodic_month) / synodic_month
+
+    if phase < 0.03:
+        return "🌑 신월"
+    elif phase < 0.22:
+        return "🌒 초승달"
+    elif phase < 0.28:
+        return "🌓 상현달"
+    elif phase < 0.47:
+        return "🌔 차오르는 달"
+    elif phase < 0.53:
+        return "🌕 보름달"
+    elif phase < 0.72:
+        return "🌖 기우는 달"
+    elif phase < 0.78:
+        return "🌗 하현달"
+    else:
+        return "🌘 그믐달"
+
+
+# =========================================================
+# 로그 파일 생성
+# =========================================================
+
+def initialize_log_file():
+    """log.csv가 없으면 새로 생성"""
+
+    if not os.path.exists(LOG_FILE):
+
+        df = pd.DataFrame(
+            columns=[
+                "날짜",
+                "모드",
+                "시작시각",
+                "종료시각",
+                "소요시간(분)",
+                "전진거리(해리)"
+            ]
+        )
+
+        df.to_csv(
+            LOG_FILE,
+            index=False,
+            encoding="utf-8-sig"
+        )
+
+
+# =========================================================
+# 공부 기록 저장
+# =========================================================
+
+def save_session(start_time, end_time, mode):
+    """공부 세션을 log.csv에 저장"""
+
+    duration_seconds = (
+        end_time - start_time
+    ).total_seconds()
+
+    minutes = max(
+        0,
+        round(duration_seconds / 60, 1)
+    )
+
+    distance = minutes * NAUTICAL_MILES_PER_MINUTE
+
+    new_data = pd.DataFrame(
+        [{
+            "날짜": start_time.strftime("%Y-%m-%d"),
+            "모드": mode,
+            "시작시각": start_time.strftime("%H:%M:%S"),
+            "종료시각": end_time.strftime("%H:%M:%S"),
+            "소요시간(분)": minutes,
+            "전진거리(해리)": round(distance, 1)
+        }]
+    )
+
+    initialize_log_file()
+
+    new_data.to_csv(
+        LOG_FILE,
+        mode="a",
+        header=False,
+        index=False,
+        encoding="utf-8-sig"
+    )
+
+
+# =========================================================
+# 세션 상태 초기화
+# =========================================================
+
+if "timer_running" not in st.session_state:
+    st.session_state.timer_running = False
+
+if "timer_finished" not in st.session_state:
+    st.session_state.timer_finished = False
+
+if "start_time" not in st.session_state:
+    st.session_state.start_time = None
+
+if "selected_mode" not in st.session_state:
+    st.session_state.selected_mode = "자유형"
+
+if "selected_destination" not in st.session_state:
+    st.session_state.selected_destination = "도쿄"
+
+if "last_saved_start" not in st.session_state:
+    st.session_state.last_saved_start = None
+
+
+# =========================================================
+# CSS
+# =========================================================
 
 st.markdown(
     """
     <style>
+
     /* 전체 배경 */
     .stApp {
-        background:
-            radial-gradient(
-                circle at 50% -20%,
-                rgba(184, 146, 61, 0.10),
-                transparent 38%
-            ),
-            #071321;
-        color: #E8E2D5;
+        background-color: #07111f;
+        color: #f4efe2;
     }
 
-    /* 전체 콘텐츠 폭 */
+    /* 메인 영역 */
     .block-container {
         max-width: 1100px;
-        padding-top: 2.5rem;
+        padding-top: 3rem;
         padding-bottom: 4rem;
     }
 
-    /* 제목 */
-    h1, h2, h3 {
-        color: #E8E2D5 !important;
-        letter-spacing: -0.02em;
+    /* 사이드바 */
+    section[data-testid="stSidebar"] {
+        background-color: #091827;
+        border-right: 1px solid #b99a55;
     }
 
-    /* 상단 작은 제목 */
-    .page-label {
-        color: #C7A65A;
-        font-size: 0.78rem;
-        letter-spacing: 0.28em;
-        text-transform: uppercase;
-        margin-bottom: 0.4rem;
+    /* 제목 */
+    .main-title {
+        font-size: 3.5rem;
+        font-weight: 700;
+        color: #d8b66a;
+        letter-spacing: 0.05em;
+        margin-bottom: 0.2rem;
     }
 
     .subtitle {
-        color: #9CA9B7;
-        font-size: 0.95rem;
-        margin-bottom: 2rem;
+        color: #aeb8c4;
+        font-size: 1.05rem;
+        margin-bottom: 2.5rem;
     }
 
-    /* 골드 라인 */
-    .gold-line {
-        height: 1px;
-        background: linear-gradient(
-            90deg,
-            transparent,
-            #B8954A,
-            transparent
-        );
-        margin: 1rem 0 2rem 0;
-    }
-
-    /* 통계 카드 */
-    div[data-testid="stMetric"] {
-        background: rgba(13, 29, 47, 0.92);
-        border: 1px solid rgba(199, 166, 90, 0.24);
+    /* 카드 */
+    .info-card {
+        background-color: #0d1b2a;
+        border: 1px solid #31465d;
         border-radius: 14px;
-        padding: 1rem;
+        padding: 22px;
+        margin-bottom: 18px;
     }
 
-    div[data-testid="stMetricLabel"] {
-        color: #8F9BA8 !important;
+    .card-title {
+        color: #d8b66a;
+        font-size: 0.9rem;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        margin-bottom: 8px;
     }
 
-    div[data-testid="stMetricValue"] {
-        color: #E8D09A !important;
+    .card-value {
+        color: #f4efe2;
+        font-size: 1.5rem;
+        font-weight: 600;
     }
 
-    /* 섹션 카드 */
-    .section-card {
-        background: rgba(10, 24, 39, 0.88);
-        border: 1px solid rgba(199, 166, 90, 0.18);
-        border-radius: 16px;
-        padding: 1.4rem;
-        margin-top: 1rem;
-        margin-bottom: 1rem;
-    }
-
-    .section-description {
-        color: #8F9BA8;
-        font-size: 0.85rem;
-        margin-top: -0.5rem;
-        margin-bottom: 1rem;
-    }
-
-    /* 안내문 */
-    .empty-box {
-        background: rgba(13, 29, 47, 0.92);
-        border: 1px solid rgba(199, 166, 90, 0.25);
-        border-radius: 16px;
-        padding: 2rem;
+    /* 타이머 */
+    .timer-box {
+        background-color: #081522;
+        border: 1px solid #8e743d;
+        border-radius: 18px;
+        padding: 45px 20px;
         text-align: center;
-        color: #B9C2CC;
-        margin-top: 2rem;
+        margin: 25px 0;
     }
 
-    .empty-title {
-        color: #E8D09A;
-        font-size: 1.2rem;
-        margin-bottom: 0.5rem;
+    .timer-label {
+        color: #aeb8c4;
+        font-size: 0.95rem;
+        letter-spacing: 0.15em;
+        margin-bottom: 10px;
     }
 
-    /* 작은 설명 */
-    .small-note {
-        color: #788696;
-        font-size: 0.78rem;
+    .timer-number {
+        color: #f1d58b;
+        font-size: 5rem;
+        font-weight: 700;
+        letter-spacing: 0.05em;
+        line-height: 1;
     }
 
-    /* dataframe 글자 */
-    [data-testid="stDataFrame"] {
-        border-radius: 12px;
-        overflow: hidden;
+    /* 구분선 */
+    hr {
+        border-color: #26384a !important;
     }
+
+    /* 버튼 */
+    .stButton > button {
+        border-radius: 10px;
+        min-height: 45px;
+        font-weight: 600;
+    }
+
+    /* 입력창 */
+    div[data-baseweb="select"] > div {
+        background-color: #0d1b2a;
+    }
+
     </style>
     """,
-    unsafe_allow_html=True,
+    unsafe_allow_html=True
 )
 
 
-# ============================================================
-# 함수
-# ============================================================
+# =========================================================
+# 사이드바
+# =========================================================
 
-def load_log():
-    """
-    log.csv를 읽어오는 함수.
-    파일이 없거나 읽는 데 문제가 있으면 빈 DataFrame을 반환한다.
-    """
-
-    required_columns = [
-        "날짜",
-        "모드",
-        "시작시각",
-        "종료시각",
-        "소요시간(분)",
-        "전진거리(해리)",
-    ]
-
-    if not os.path.exists(LOG_FILE):
-        return pd.DataFrame(columns=required_columns)
-
-    try:
-        df = pd.read_csv(
-            LOG_FILE,
-            encoding="utf-8-sig",
-        )
-
-        # 필요한 컬럼이 빠져 있다면 빈 값으로 추가
-        for column in required_columns:
-            if column not in df.columns:
-                df[column] = None
-
-        df = df[required_columns].copy()
-
-        return df
-
-    except Exception:
-        return pd.DataFrame(columns=required_columns)
-
-
-def calculate_longest_streak(date_series):
-    """
-    공부 기록이 하루도 빠지지 않고 이어진
-    가장 긴 연속 공부일을 계산한다.
-    """
-
-    if len(date_series) == 0:
-        return 0
-
-    # 날짜 중복 제거 후 정렬
-    dates = sorted(
-        set(
-            pd.to_datetime(
-                date_series,
-                errors="coerce",
-            ).dropna().dt.date
-        )
-    )
-
-    if not dates:
-        return 0
-
-    longest = 1
-    current = 1
-
-    for i in range(1, len(dates)):
-        difference = (
-            dates[i] - dates[i - 1]
-        ).days
-
-        if difference == 1:
-            current += 1
-        else:
-            current = 1
-
-        longest = max(longest, current)
-
-    return longest
-
-
-def prepare_dataframe(df):
-    """
-    숫자/날짜 컬럼을 계산하기 편한 형태로 변환한다.
-    """
-
-    if df.empty:
-        return df
-
-    df = df.copy()
-
-    # 날짜 변환
-    df["날짜"] = pd.to_datetime(
-        df["날짜"],
-        errors="coerce",
-    ).dt.date
-
-    # 시작/종료 시각 변환
-    df["시작시각_계산용"] = pd.to_datetime(
-        df["시작시각"],
-        errors="coerce",
-    )
-
-    df["종료시각_계산용"] = pd.to_datetime(
-        df["종료시각"],
-        errors="coerce",
-    )
-
-    # 숫자로 변환
-    df["소요시간(분)"] = pd.to_numeric(
-        df["소요시간(분)"],
-        errors="coerce",
-    ).fillna(0)
-
-    df["전진거리(해리)"] = pd.to_numeric(
-        df["전진거리(해리)"],
-        errors="coerce",
-    ).fillna(0)
-
-    # 날짜가 없는 잘못된 행 제거
-    df = df.dropna(subset=["날짜"])
-
-    return df
-
-
-def make_daily_table(df):
-    """
-    날짜별 통계를 만든다.
-    """
-
-    if df.empty:
-        return pd.DataFrame()
-
-    daily = (
-        df.groupby("날짜")
-        .agg(
-            그날총공부시간분=(
-                "소요시간(분)",
-                "sum",
-            ),
-            그날시작시각=(
-                "시작시각_계산용",
-                "min",
-            ),
-            그날종료시각=(
-                "종료시각_계산용",
-                "max",
-            ),
-            그날최대집중시간분=(
-                "소요시간(분)",
-                "max",
-            ),
-            그날총전진거리해리=(
-                "전진거리(해리)",
-                "sum",
-            ),
-        )
-        .reset_index()
-    )
-
-    # 최신 날짜가 위로 오도록 정렬
-    daily = daily.sort_values(
-        "날짜",
-        ascending=False,
-    )
-
-    # 화면에 보여줄 이름으로 변경
-    daily = daily.rename(
-        columns={
-            "날짜": "날짜",
-            "그날총공부시간분": "총 공부시간(분)",
-            "그날시작시각": "시작시각",
-            "그날종료시각": "종료시각",
-            "그날최대집중시간분": "최대 집중시간(분)",
-            "그날총전진거리해리": "총 전진거리(해리)",
-        }
-    )
-
-    # 시각을 보기 편하게 변경
-    daily["시작시각"] = daily["시작시각"].dt.strftime(
-        "%Y-%m-%d %H:%M"
-    )
-
-    daily["종료시각"] = daily["종료시각"].dt.strftime(
-        "%Y-%m-%d %H:%M"
-    )
-
-    # 숫자 정리
-    daily["총 공부시간(분)"] = daily[
-        "총 공부시간(분)"
-    ].round(1)
-
-    daily["최대 집중시간(분)"] = daily[
-        "최대 집중시간(분)"
-    ].round(1)
-
-    daily["총 전진거리(해리)"] = daily[
-        "총 전진거리(해리)"
-    ].round(1)
-
-    return daily
-
-
-# ============================================================
-# 데이터 불러오기
-# ============================================================
-
-df = load_log()
-
-df = prepare_dataframe(df)
-
-
-# ============================================================
-# 헤더
-# ============================================================
-
-st.markdown(
-    '<div class="page-label">SAILING NOTE</div>',
-    unsafe_allow_html=True,
-)
-
-st.title("⚓ 항해일지")
-
-st.markdown(
-    """
-    <div class="subtitle">
-        지금까지의 공부 항로를 돌아보고,
-        얼마나 멀리 항해했는지 확인해 보세요.
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
-
-st.markdown(
-    '<div class="gold-line"></div>',
-    unsafe_allow_html=True,
-)
-
-
-# ============================================================
-# 기록이 하나도 없는 경우
-# ============================================================
-
-if df.empty:
+with st.sidebar:
 
     st.markdown(
         """
-        <div class="empty-box">
-            <div class="empty-title">
-                ⚓ 아직 기록이 없어요.
-            </div>
-
-            오늘의 항해를 먼저 시작해보세요!
-            <br><br>
-
-            <span class="small-note">
-                공부 세션을 완료하고
-                「항해일지에 기록하기」를 누르면
-                이곳에 기록이 쌓입니다.
-            </span>
+        <div style="
+            color:#d8b66a;
+            font-size:1.4rem;
+            font-weight:700;
+            margin-bottom:10px;
+        ">
+            ⚓ CELESTIAL LOGBOOK
         </div>
         """,
-        unsafe_allow_html=True,
+        unsafe_allow_html=True
     )
 
-    st.stop()
-
-
-# ============================================================
-# 상단 요약 지표
-# ============================================================
-
-st.subheader("⚓ 항해 기록 요약")
-
-total_distance = df[
-    "전진거리(해리)"
-].sum()
-
-total_study_days = df[
-    "날짜"
-].nunique()
-
-longest_streak = calculate_longest_streak(
-    df["날짜"]
-)
-
-longest_session = df[
-    "소요시간(분)"
-].max()
-
-
-metric1, metric2, metric3, metric4 = st.columns(4)
-
-with metric1:
-    st.metric(
-        label="총 누적 항해 거리",
-        value=f"{total_distance:,.1f} 해리",
+    st.markdown(
+        """
+        <div style="
+            color:#aeb8c4;
+            font-size:0.9rem;
+            line-height:1.6;
+            margin-bottom:25px;
+        ">
+        공부한 시간을 항해 거리로 바꾸어<br>
+        나만의 항해일지를 만들어보세요.
+        </div>
+        """,
+        unsafe_allow_html=True
     )
 
-with metric2:
-    st.metric(
-        label="총 공부일수",
-        value=f"{total_study_days:,}일",
-    )
+    st.divider()
 
-with metric3:
-    st.metric(
-        label="최장 연속 기록일",
-        value=f"{longest_streak:,}일",
-    )
+    st.markdown("### ⚓ 항해 모드")
 
-with metric4:
-    st.metric(
-        label="최대 집중시간",
-        value=f"{longest_session:,.1f}분",
-    )
-
-
-# ============================================================
-# 날짜별 기록
-# ============================================================
-
-st.markdown(
-    '<div class="gold-line"></div>',
-    unsafe_allow_html=True,
-)
-
-st.subheader("⚓ 날짜별 항해 기록")
-
-st.markdown(
-    """
-    <div class="section-description">
-        같은 날의 여러 세션은 하나의 항해 기록으로 합산됩니다.
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
-
-daily_df = make_daily_table(df)
-
-st.dataframe(
-    daily_df,
-    use_container_width=True,
-    hide_index=True,
-    column_config={
-        "날짜": st.column_config.DateColumn(
-            "날짜",
-            format="YYYY-MM-DD",
-        ),
-        "총 공부시간(분)": st.column_config.NumberColumn(
-            "총 공부시간(분)",
-            format="%.1f",
-        ),
-        "최대 집중시간(분)": st.column_config.NumberColumn(
-            "최대 집중시간(분)",
-            format="%.1f",
-        ),
-        "총 전진거리(해리)": st.column_config.NumberColumn(
-            "총 전진거리(해리)",
-            format="%.1f",
-        ),
-    },
-)
-
-
-# ============================================================
-# 최근 14일 공부 추이
-# ============================================================
-
-st.markdown(
-    '<div class="gold-line"></div>',
-    unsafe_allow_html=True,
-)
-
-st.subheader("⚓ 최근 14일 항해 추이")
-
-st.markdown(
-    """
-    <div class="section-description">
-        최근 14일 동안 하루에 얼마나 공부했는지 보여줍니다.
-        기록이 없는 날은 0분으로 표시됩니다.
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
-
-
-today = date.today()
-
-recent_dates = [
-    today - timedelta(days=i)
-    for i in range(13, -1, -1)
-]
-
-# 날짜별 공부시간 합계
-daily_minutes = (
-    df.groupby("날짜")["소요시간(분)"]
-    .sum()
-)
-
-chart_data = pd.DataFrame(
-    {
-        "날짜": recent_dates,
-        "공부시간(분)": [
-            daily_minutes.get(
-                target_date,
-                0,
-            )
-            for target_date in recent_dates
+    mode = st.radio(
+        "공부 방식을 선택하세요.",
+        [
+            "자유형",
+            "지정 항로",
+            "뽀모도로"
         ],
-    }
-)
-
-chart_data = chart_data.set_index("날짜")
-
-st.bar_chart(
-    chart_data,
-    y="공부시간(분)",
-    use_container_width=True,
-)
-
-
-# ============================================================
-# 모드별 공부시간 비중
-# ============================================================
-
-st.markdown(
-    '<div class="gold-line"></div>',
-    unsafe_allow_html=True,
-)
-
-st.subheader("⚓ 항해 방식별 공부시간")
-
-st.markdown(
-    """
-    <div class="section-description">
-        지금까지 기록한 공부시간이 어떤 항해 방식으로 이루어졌는지 보여줍니다.
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
-
-
-mode_order = [
-    "자유형",
-    "지정",
-    "뽀모도로",
-]
-
-mode_data = (
-    df.groupby("모드")["소요시간(분)"]
-    .sum()
-    .reindex(
-        mode_order,
-        fill_value=0,
+        index=0,
+        label_visibility="collapsed"
     )
-    .reset_index()
+
+    st.session_state.selected_mode = mode
+
+    if mode == "지정 항로":
+
+        destination = st.selectbox(
+            "목적지",
+            list(DESTINATIONS.keys())
+        )
+
+        st.session_state.selected_destination = destination
+
+        destination_distance = get_destination_distance(
+            destination
+        )
+
+        st.caption(
+            f"부산 → {destination} "
+            f"약 {destination_distance:,.0f} NM"
+        )
+
+    st.divider()
+
+    today = get_kst_now().date()
+
+    st.markdown("### 오늘의 하늘")
+
+    st.markdown(
+        f"""
+        <div style="
+            color:#f4efe2;
+            line-height:1.8;
+        ">
+        📅 {today.strftime("%Y년 %m월 %d일")}<br>
+        ✦ {CONSTELLATIONS[today.month]}<br>
+        {get_moon_phase(today)}
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+
+# =========================================================
+# 메인 제목
+# =========================================================
+
+st.markdown(
+    '<div class="main-title">CELESTIAL LOGBOOK</div>',
+    unsafe_allow_html=True
 )
 
-mode_data.columns = [
-    "모드",
-    "누적 공부시간(분)",
-]
-
-mode_data["누적 공부시간(분)"] = (
-    mode_data["누적 공부시간(분)"]
-    .round(1)
+st.markdown(
+    '<div class="subtitle">공부를 항해로 바꾸는 나만의 항해일지</div>',
+    unsafe_allow_html=True
 )
 
-total_mode_minutes = mode_data[
-    "누적 공부시간(분)"
-].sum()
 
-if total_mode_minutes > 0:
-    mode_data["비중"] = (
-        mode_data["누적 공부시간(분)"]
-        / total_mode_minutes
-        * 100
-    ).round(1)
+# =========================================================
+# 현재 상태 카드
+# =========================================================
+
+col1, col2, col3 = st.columns(3)
+
+with col1:
+
+    st.markdown(
+        f"""
+        <div class="info-card">
+            <div class="card-title">CURRENT MODE</div>
+            <div class="card-value">
+                {st.session_state.selected_mode}
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+
+with col2:
+
+    if mode == "지정 항로":
+
+        target_text = st.session_state.selected_destination
+
+    elif mode == "뽀모도로":
+
+        target_text = "25분 항해"
+
+    else:
+
+        target_text = "자유 항해"
+
+    st.markdown(
+        f"""
+        <div class="info-card">
+            <div class="card-title">DESTINATION</div>
+            <div class="card-value">
+                {target_text}
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+
+with col3:
+
+    if mode == "뽀모도로":
+        duration_text = "25 min"
+    else:
+        duration_text = "자유 시간"
+
+    st.markdown(
+        f"""
+        <div class="info-card">
+            <div class="card-title">VOYAGE</div>
+            <div class="card-value">
+                {duration_text}
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+
+# =========================================================
+# 타이머 계산 함수
+# =========================================================
+
+def get_elapsed_seconds():
+
+    if st.session_state.start_time is None:
+        return 0
+
+    now = get_kst_now()
+
+    elapsed = (
+        now - st.session_state.start_time
+    ).total_seconds()
+
+    return max(0, int(elapsed))
+
+
+# =========================================================
+# 타이머 영역
+# =========================================================
+
+elapsed_seconds = get_elapsed_seconds()
+
+
+# 뽀모도로는 25분 제한
+if mode == "뽀모도로":
+
+    total_seconds = 25 * 60
+
+    remaining_seconds = max(
+        0,
+        total_seconds - elapsed_seconds
+    )
+
+    minutes = remaining_seconds // 60
+    seconds = remaining_seconds % 60
+
+    timer_text = f"{minutes:02d}:{seconds:02d}"
+
 else:
-    mode_data["비중"] = 0
 
+    minutes = elapsed_seconds // 60
+    seconds = elapsed_seconds % 60
 
-left, right = st.columns([1, 1.5])
+    timer_text = f"{minutes:02d}:{seconds:02d}"
 
-with left:
-
-    display_mode = mode_data.copy()
-
-    display_mode["비중"] = (
-        display_mode["비중"]
-        .map(lambda x: f"{x:.1f}%")
-    )
-
-    st.dataframe(
-        display_mode,
-        use_container_width=True,
-        hide_index=True,
-    )
-
-
-with right:
-
-    mode_chart = mode_data[
-        ["모드", "누적 공부시간(분)"]
-    ].set_index("모드")
-
-    st.bar_chart(
-        mode_chart,
-        y="누적 공부시간(분)",
-        use_container_width=True,
-    )
-
-
-# ============================================================
-# 하단 안내
-# ============================================================
 
 st.markdown(
-    '<div class="gold-line"></div>',
-    unsafe_allow_html=True,
-)
-
-st.markdown(
-    """
-    <div class="small-note">
-        항해일지는 main.py에서 「항해일지에 기록하기」를
-        누른 세션을 기준으로 계산됩니다.
+    f"""
+    <div class="timer-box">
+        <div class="timer-label">
+            CURRENT VOYAGE
+        </div>
+        <div class="timer-number">
+            {timer_text}
+        </div>
     </div>
     """,
-    unsafe_allow_html=True,
+    unsafe_allow_html=True
 )
+
+
+# =========================================================
+# 타이머 상태 표시
+# =========================================================
+
+if st.session_state.timer_running:
+
+    if mode == "뽀모도로":
+
+        st.info("⚓ 25분 항해 중입니다. 집중하세요.")
+
+    else:
+
+        st.info("⚓ 항해 중입니다. 공부에 집중하세요.")
+
+elif st.session_state.timer_finished:
+
+    st.success("⚓ 항해가 완료되었습니다.")
+
+else:
+
+    st.caption(
+        "출항 버튼을 누르면 공부 시간이 항해 거리로 기록됩니다."
+    )
+
+
+# =========================================================
+# 버튼
+# =========================================================
+
+button_col1, button_col2, button_col3 = st.columns(3)
+
+
+# ---------------------------------------------------------
+# 출항
+# ---------------------------------------------------------
+
+with button_col1:
+
+    start_clicked = st.button(
+        "⚓ 출항",
+        use_container_width=True,
+        disabled=st.session_state.timer_running
+    )
+
+
+# ---------------------------------------------------------
+# 잠시 정박
+# ---------------------------------------------------------
+
+with button_col2:
+
+    stop_clicked = st.button(
+        "⏸ 정박",
+        use_container_width=True,
+        disabled=not st.session_state.timer_running
+    )
+
+
+# ---------------------------------------------------------
+# 초기화
+# ---------------------------------------------------------
+
+with button_col3:
+
+    reset_clicked = st.button(
+        "↻ 초기화",
+        use_container_width=True
+    )
+
+
+# =========================================================
+# 출항 처리
+# =========================================================
+
+if start_clicked:
+
+    st.session_state.start_time = get_kst_now()
+
+    st.session_state.timer_running = True
+
+    st.session_state.timer_finished = False
+
+    st.session_state.last_saved_start = None
+
+    st.rerun()
+
+
+# =========================================================
+# 정박 처리
+# =========================================================
+
+if stop_clicked:
+
+    if st.session_state.start_time is not None:
+
+        end_time = get_kst_now()
+
+        # 이미 저장된 세션인지 확인
+        if (
+            st.session_state.last_saved_start
+            != st.session_state.start_time
+        ):
+
+            save_session(
+                st.session_state.start_time,
+                end_time,
+                mode
+            )
+
+            st.session_state.last_saved_start = (
+                st.session_state.start_time
+            )
+
+    st.session_state.timer_running = False
+
+    st.session_state.timer_finished = True
+
+    st.rerun()
+
+
+# =========================================================
+# 초기화 처리
+# =========================================================
+
+if reset_clicked:
+
+    st.session_state.timer_running = False
+
+    st.session_state.timer_finished = False
+
+    st.session_state.start_time = None
+
+    st.session_state.last_saved_start = None
+
+    st.rerun()
+
+
+# =========================================================
+# 뽀모도로 자동 종료
+# =========================================================
+
+if (
+    st.session_state.timer_running
+    and mode == "뽀모도로"
+    and elapsed_seconds >= 25 * 60
+):
+
+    end_time = (
+        st.session_state.start_time
+        + timedelta(minutes=25)
+    )
+
+    if (
+        st.session_state.last_saved_start
+        != st.session_state.start_time
+    ):
+
+        save_session(
+            st.session_state.start_time,
+            end_time,
+            mode
+        )
+
+        st.session_state.last_saved_start = (
+            st.session_state.start_time
+        )
+
+    st.session_state.timer_running = False
+
+    st.session_state.timer_finished = True
+
+    st.rerun()
+
+
+# =========================================================
+# 지정 항로 진행도
+# =========================================================
+
+if mode == "지정 항로":
+
+    initialize_log_file()
+
+    try:
+
+        log_df = pd.read_csv(
+            LOG_FILE,
+            encoding="utf-8-sig"
+        )
+
+        if not log_df.empty:
+
+            total_distance = pd.to_numeric(
+                log_df["전진거리(해리)"],
+                errors="coerce"
+            ).fillna(0).sum()
+
+        else:
+
+            total_distance = 0
+
+    except Exception:
+
+        total_distance = 0
+
+    destination_distance = get_destination_distance(
+        st.session_state.selected_destination
+    )
+
+    progress = min(
+        total_distance / destination_distance,
+        1.0
+    )
+
+    st.markdown("---")
+
+    st.markdown("### 🧭 항로 진행도")
+
+    st.progress(progress)
+
+    progress_col1, progress_col2 = st.columns(2)
+
+    with progress_col1:
+
+        st.metric(
+            "현재까지 전진",
+            f"{total_distance:,.1f} NM"
+        )
+
+    with progress_col2:
+
+        st.metric(
+            "목적지까지",
+            f"{destination_distance:,.0f} NM"
+        )
+
+    if progress >= 1:
+
+        st.success(
+            f"🎉 {st.session_state.selected_destination}에 도착했습니다!"
+        )
+
+    else:
+
+        remaining = destination_distance - total_distance
+
+        st.caption(
+            f"목적지까지 약 {remaining:,.1f} NM 남았습니다."
+        )
+
+
+# =========================================================
+# 뽀모도로 설명
+# =========================================================
+
+if mode == "뽀모도로":
+
+    st.markdown("---")
+
+    st.markdown("### 🍅 뽀모도로 항해")
+
+    route_text = " → ".join(POMODORO_ROUTE)
+
+    st.markdown(
+        f"""
+        <div class="info-card">
+
+        <div class="card-title">CURRENT ROUTE</div>
+
+        <div style="
+            color:#f4efe2;
+            font-size:1.15rem;
+            margin-bottom:12px;
+        ">
+        {route_text}
+        </div>
+
+        <div style="
+            color:#aeb8c4;
+            line-height:1.7;
+        ">
+        25분 집중 공부를 완료하면 하나의 항해 기록이 남습니다.
+        </div>
+
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+
+# =========================================================
+# 오늘의 안내
+# =========================================================
+
+st.markdown("---")
+
+st.markdown("### ✦ 항해 안내")
+
+if mode == "자유형":
+
+    st.write(
+        "원하는 만큼 자유롭게 공부하세요. "
+        "정박 버튼을 누르면 공부 시간이 항해일지에 기록됩니다."
+    )
+
+elif mode == "지정 항로":
+
+    st.write(
+        f"부산에서 {st.session_state.selected_destination}까지의 "
+        "가상 항로를 따라 공부합니다."
+    )
+
+else:
+
+    st.write(
+        "25분 동안 집중하고 항해 기록을 남겨보세요."
+    )
+
+
+# =========================================================
+# 자동 새로고침
+# =========================================================
+
+if st.session_state.timer_running:
+
+    try:
+
+        st.fragment(run_every=1)
+
+    except Exception:
+
+        pass
