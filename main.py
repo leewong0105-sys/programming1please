@@ -1,3 +1,5 @@
+# main.py
+
 import streamlit as st
 import pandas as pd
 import math
@@ -201,18 +203,25 @@ def get_moon_phase(date_value):
 
     if phase < 0.03:
         return "🌑 신월"
+
     elif phase < 0.22:
         return "🌒 초승달"
+
     elif phase < 0.28:
         return "🌓 상현달"
+
     elif phase < 0.47:
         return "🌔 차오르는 달"
+
     elif phase < 0.53:
         return "🌕 보름달"
+
     elif phase < 0.72:
         return "🌖 기우는 달"
+
     elif phase < 0.78:
         return "🌗 하현달"
+
     else:
         return "🌘 그믐달"
 
@@ -243,6 +252,9 @@ def initialize_log_file():
         )
 
 
+initialize_log_file()
+
+
 # =========================================================
 # 공부 기록 저장
 # =========================================================
@@ -261,10 +273,14 @@ def save_session(start_time, end_time, mode):
         seconds / 60
     )
 
-    minutes = round(minutes, 1)
+    minutes = round(
+        minutes,
+        1
+    )
 
     distance = (
-        minutes * NAUTICAL_MILES_PER_MINUTE
+        minutes
+        * NAUTICAL_MILES_PER_MINUTE
     )
 
     new_row = pd.DataFrame(
@@ -310,12 +326,62 @@ if "selected_destination" not in st.session_state:
 
 
 # =========================================================
+# 시간 계산
+# =========================================================
+
+def get_elapsed_seconds():
+
+    # 정박 상태
+    if not st.session_state.timer_running:
+        return st.session_state.elapsed_seconds
+
+    # 출항 상태인데 시작 시간이 없는 경우
+    if st.session_state.start_time is None:
+        return st.session_state.elapsed_seconds
+
+    now = get_kst_now()
+
+    current_seconds = int(
+        (
+            now
+            - st.session_state.start_time
+        ).total_seconds()
+    )
+
+    return (
+        st.session_state.elapsed_seconds
+        + max(0, current_seconds)
+    )
+
+
+# =========================================================
+# 시간 → MM:SS
+# =========================================================
+
+def format_time(seconds):
+
+    seconds = max(
+        0,
+        int(seconds)
+    )
+
+    minutes = seconds // 60
+    seconds = seconds % 60
+
+    return f"{minutes:02d}:{seconds:02d}"
+
+
+# =========================================================
 # CSS
 # =========================================================
 
 st.markdown(
     """
 <style>
+
+/* -------------------------------------------------------
+   전체 화면
+------------------------------------------------------- */
 
 .stApp {
     background-color: #07111f;
@@ -328,10 +394,20 @@ st.markdown(
     padding-bottom: 4rem;
 }
 
+
+/* -------------------------------------------------------
+   사이드바
+------------------------------------------------------- */
+
 section[data-testid="stSidebar"] {
     background-color: #091827;
     border-right: 1px solid #b99a55;
 }
+
+
+/* -------------------------------------------------------
+   제목
+------------------------------------------------------- */
 
 .main-title {
     color: #d8b66a;
@@ -344,6 +420,11 @@ section[data-testid="stSidebar"] {
     color: #9daaba;
     margin-bottom: 30px;
 }
+
+
+/* -------------------------------------------------------
+   정보 카드
+------------------------------------------------------- */
 
 .info-card {
     background-color: #0d1b2a;
@@ -366,12 +447,113 @@ section[data-testid="stSidebar"] {
     font-weight: 700;
 }
 
+
+/* -------------------------------------------------------
+   타이머
+------------------------------------------------------- */
+
+.timer-box {
+    background-color: #081522;
+    border: 1px solid #8e743d;
+    border-radius: 18px;
+    padding: 45px 20px;
+    margin: 25px 0;
+    text-align: center;
+}
+
+.timer-label {
+    color: #f1d58b;
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: 3px;
+    margin-bottom: 14px;
+}
+
+.timer-number {
+    color: #ffffff;
+    font-size: 72px;
+    font-weight: 700;
+    line-height: 1.1;
+    font-family: monospace;
+    text-shadow: 0 0 12px rgba(241, 213, 139, 0.35);
+}
+
+
+/* -------------------------------------------------------
+   섹션 제목
+------------------------------------------------------- */
+
 .section-title {
     color: #d8b66a;
     font-size: 1.3rem;
     font-weight: 700;
     margin-top: 30px;
     margin-bottom: 15px;
+}
+
+
+/* -------------------------------------------------------
+   출항 / 정박 / 초기화 버튼
+------------------------------------------------------- */
+
+/* 기본 버튼 */
+div.stButton > button {
+    background-color: #102235 !important;
+    color: #f1d58b !important;
+    border: 1px solid #8e743d !important;
+    border-radius: 10px !important;
+    font-weight: 700 !important;
+    min-height: 45px !important;
+}
+
+
+/* 버튼 안의 모든 글씨 */
+div.stButton > button p,
+div.stButton > button span,
+div.stButton > button div {
+    color: #f1d58b !important;
+}
+
+
+/* 마우스를 올렸을 때 */
+div.stButton > button:hover {
+    background-color: #1a3047 !important;
+    color: #ffffff !important;
+    border-color: #f1d58b !important;
+}
+
+
+/* hover 시 글씨 */
+div.stButton > button:hover p,
+div.stButton > button:hover span,
+div.stButton > button:hover div {
+    color: #ffffff !important;
+}
+
+
+/* 비활성 버튼 */
+div.stButton > button:disabled {
+    background-color: #0b1724 !important;
+    color: #718096 !important;
+    border-color: #263548 !important;
+    opacity: 1 !important;
+}
+
+
+/* 비활성 버튼 글씨 */
+div.stButton > button:disabled p,
+div.stButton > button:disabled span,
+div.stButton > button:disabled div {
+    color: #718096 !important;
+}
+
+
+/* -------------------------------------------------------
+   Streamlit 기본 텍스트
+------------------------------------------------------- */
+
+.stCaption {
+    color: #9daaba !important;
 }
 
 </style>
@@ -432,12 +614,12 @@ with st.sidebar:
         ].index(
             st.session_state.selected_mode
         ),
-        label_visibility="collapsed",
-        key="mode_radio"
+        label_visibility="collapsed"
     )
 
     st.session_state.selected_mode = mode
 
+    # 지정 항로일 때 목적지 선택
     if mode == "지정 항로":
 
         destination = st.selectbox(
@@ -447,8 +629,7 @@ with st.sidebar:
                 DESTINATIONS.keys()
             ).index(
                 st.session_state.selected_destination
-            ),
-            key="destination_select"
+            )
         )
 
         st.session_state.selected_destination = destination
@@ -463,6 +644,7 @@ with st.sidebar:
 
     st.divider()
 
+    # 오늘의 하늘
     today = get_kst_now().date()
 
     st.markdown("### 오늘의 하늘")
@@ -504,12 +686,16 @@ st.markdown(
 col1, col2, col3 = st.columns(3)
 
 
+# 현재 모드
 with col1:
 
     st.markdown(
         f"""
         <div class="info-card">
-            <div class="card-title">CURRENT MODE</div>
+            <div class="card-title">
+                CURRENT MODE
+            </div>
+
             <div class="card-value">
                 {mode}
             </div>
@@ -519,6 +705,7 @@ with col1:
     )
 
 
+# 목적지
 with col2:
 
     if mode == "지정 항로":
@@ -538,7 +725,10 @@ with col2:
     st.markdown(
         f"""
         <div class="info-card">
-            <div class="card-title">DESTINATION</div>
+            <div class="card-title">
+                DESTINATION
+            </div>
+
             <div class="card-value">
                 {destination_text}
             </div>
@@ -548,6 +738,7 @@ with col2:
     )
 
 
+# 항해 방식
 with col3:
 
     if mode == "뽀모도로":
@@ -561,7 +752,10 @@ with col3:
     st.markdown(
         f"""
         <div class="info-card">
-            <div class="card-title">VOYAGE</div>
+            <div class="card-title">
+                VOYAGE
+            </div>
+
             <div class="card-value">
                 {voyage_text}
             </div>
@@ -572,54 +766,7 @@ with col3:
 
 
 # =========================================================
-# 경과 시간 계산
-# =========================================================
-
-def get_elapsed_seconds():
-
-    # 정박 상태
-    if not st.session_state.timer_running:
-
-        return st.session_state.elapsed_seconds
-
-    # 출항 상태인데 시작 시간이 없으면
-    if st.session_state.start_time is None:
-
-        return st.session_state.elapsed_seconds
-
-    now = get_kst_now()
-
-    current_seconds = int(
-        (
-            now - st.session_state.start_time
-        ).total_seconds()
-    )
-
-    return (
-        st.session_state.elapsed_seconds
-        + max(0, current_seconds)
-    )
-
-
-# =========================================================
-# 시간 → MM:SS
-# =========================================================
-
-def format_time(seconds):
-
-    seconds = max(
-        0,
-        int(seconds)
-    )
-
-    minutes = seconds // 60
-    seconds = seconds % 60
-
-    return f"{minutes:02d}:{seconds:02d}"
-
-
-# =========================================================
-# 타이머 표시
+# 타이머 화면
 # =========================================================
 
 @st.fragment(run_every=1)
@@ -627,7 +774,7 @@ def show_timer():
 
     elapsed = get_elapsed_seconds()
 
-    # 뽀모도로는 남은 시간을 표시
+    # 뽀모도로 모드
     if st.session_state.selected_mode == "뽀모도로":
 
         total = 25 * 60
@@ -641,39 +788,26 @@ def show_timer():
             remaining
         )
 
+    # 자유형 / 지정 항로
     else:
 
         timer_text = format_time(
             elapsed
         )
 
+    # -----------------------------------------------------
+    # 타이머 HTML
+    # -----------------------------------------------------
+
     st.markdown(
         f"""
-        <div style="
-            background:#081522;
-            border:1px solid #8e743d;
-            border-radius:18px;
-            padding:40px 20px;
-            margin:25px 0;
-            text-align:center;
-        ">
+        <div class="timer-box">
 
-            <div style="
-                color:#9daaba;
-                font-size:14px;
-                letter-spacing:3px;
-                margin-bottom:12px;
-            ">
+            <div class="timer-label">
                 CURRENT VOYAGE
             </div>
 
-            <div style="
-                color:#f1d58b;
-                font-size:72px;
-                font-weight:700;
-                line-height:1.1;
-                font-family:monospace;
-            ">
+            <div class="timer-number">
                 {timer_text}
             </div>
 
@@ -683,52 +817,56 @@ def show_timer():
     )
 
 
+# 타이머 실행
 show_timer()
 
 
 # =========================================================
-# 버튼
+# 출항 / 정박 / 초기화 버튼
 # =========================================================
 
-button_col1, button_col2, button_col3 = st.columns(3)
+col1, col2, col3 = st.columns(3)
 
 
-with button_col1:
+# 출항
+with col1:
 
     start_clicked = st.button(
         "⚓ 출항",
+        key="start_timer_button",
         use_container_width=True,
-        disabled=st.session_state.timer_running,
-        key="start_timer_button"
+        disabled=st.session_state.timer_running
     )
 
 
-with button_col2:
+# 정박
+with col2:
 
     stop_clicked = st.button(
         "⏸ 정박",
+        key="stop_timer_button",
         use_container_width=True,
-        disabled=not st.session_state.timer_running,
-        key="stop_timer_button"
+        disabled=not st.session_state.timer_running
     )
 
 
-with button_col3:
+# 초기화
+with col3:
 
     reset_clicked = st.button(
         "↻ 초기화",
-        use_container_width=True,
-        key="reset_timer_button"
+        key="reset_timer_button",
+        use_container_width=True
     )
 
 
 # =========================================================
-# 출항
+# 출항 처리
 # =========================================================
 
 if start_clicked:
 
-    # 현재 시각부터 새로운 구간 시작
+    # 새로운 공부 구간 시작
     st.session_state.start_time = get_kst_now()
 
     st.session_state.timer_running = True
@@ -737,7 +875,7 @@ if start_clicked:
 
 
 # =========================================================
-# 정박
+# 정박 처리
 # =========================================================
 
 if stop_clicked:
@@ -748,7 +886,7 @@ if stop_clicked:
 
     if start is not None:
 
-        # 이번 출항 구간의 실제 시간
+        # 이번 출항 구간의 실제 공부 시간
         segment_seconds = int(
             (
                 now - start
@@ -760,12 +898,12 @@ if stop_clicked:
             segment_seconds
         )
 
-        # 지금까지 누적된 시간에 추가
+        # 누적 시간에 추가
         st.session_state.elapsed_seconds += (
             segment_seconds
         )
 
-        # 항해일지에 기록
+        # 항해일지 저장
         save_session(
             start,
             now,
@@ -781,7 +919,7 @@ if stop_clicked:
 
 
 # =========================================================
-# 초기화
+# 초기화 처리
 # =========================================================
 
 if reset_clicked:
@@ -796,18 +934,20 @@ if reset_clicked:
 
 
 # =========================================================
-# 상태 표시
+# 현재 상태 표시
 # =========================================================
 
 if st.session_state.timer_running:
 
-    st.info("⚓ 항해 중입니다.")
+    st.success(
+        "⚓ 항해 중입니다."
+    )
 
 else:
 
     if st.session_state.elapsed_seconds > 0:
 
-        st.success(
+        st.info(
             "⏸ 정박 중입니다. 다시 출항하면 이어서 진행합니다."
         )
 
@@ -870,16 +1010,16 @@ if mode == "지정 항로":
 
     st.progress(progress)
 
-    progress_col1, progress_col2 = st.columns(2)
+    col1, col2 = st.columns(2)
 
-    with progress_col1:
+    with col1:
 
         st.metric(
             "현재까지 전진",
             f"{total_distance:,.1f} NM"
         )
 
-    with progress_col2:
+    with col2:
 
         st.metric(
             "목적지까지",
@@ -942,11 +1082,13 @@ st.markdown(
     unsafe_allow_html=True
 )
 
+
 if mode == "자유형":
 
     st.write(
         "자유롭게 공부하고 정박하면 해당 시간이 항해일지에 기록됩니다."
     )
+
 
 elif mode == "지정 항로":
 
@@ -954,6 +1096,7 @@ elif mode == "지정 항로":
         f"부산에서 {st.session_state.selected_destination}까지의 "
         "가상 항로를 따라 공부합니다."
     )
+
 
 else:
 
