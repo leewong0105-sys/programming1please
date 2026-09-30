@@ -1,5 +1,3 @@
-# main.py
-
 import streamlit as st
 import pandas as pd
 import math
@@ -136,7 +134,6 @@ CONSTELLATIONS = {
 # =========================================================
 
 def haversine_nm(lat1, lon1, lat2, lon2):
-    """두 위치 사이의 거리를 해리로 계산"""
 
     earth_radius_km = 6371.0
 
@@ -203,25 +200,18 @@ def get_moon_phase(date_value):
 
     if phase < 0.03:
         return "🌑 신월"
-
     elif phase < 0.22:
         return "🌒 초승달"
-
     elif phase < 0.28:
         return "🌓 상현달"
-
     elif phase < 0.47:
         return "🌔 차오르는 달"
-
     elif phase < 0.53:
         return "🌕 보름달"
-
     elif phase < 0.72:
         return "🌖 기우는 달"
-
     elif phase < 0.78:
         return "🌗 하현달"
-
     else:
         return "🌘 그믐달"
 
@@ -326,7 +316,7 @@ if "selected_destination" not in st.session_state:
 
 
 # =========================================================
-# 시간 계산
+# 타이머 시간 계산
 # =========================================================
 
 def get_elapsed_seconds():
@@ -343,8 +333,7 @@ def get_elapsed_seconds():
 
     current_seconds = int(
         (
-            now
-            - st.session_state.start_time
+            now - st.session_state.start_time
         ).total_seconds()
     )
 
@@ -355,7 +344,7 @@ def get_elapsed_seconds():
 
 
 # =========================================================
-# 시간 → MM:SS
+# 시간 표시
 # =========================================================
 
 def format_time(seconds):
@@ -376,12 +365,8 @@ def format_time(seconds):
 # =========================================================
 
 st.markdown(
-    """
+"""
 <style>
-
-/* -------------------------------------------------------
-   전체 화면
-------------------------------------------------------- */
 
 .stApp {
     background-color: #07111f;
@@ -395,9 +380,7 @@ st.markdown(
 }
 
 
-/* -------------------------------------------------------
-   사이드바
-------------------------------------------------------- */
+/* 사이드바 */
 
 section[data-testid="stSidebar"] {
     background-color: #091827;
@@ -405,9 +388,7 @@ section[data-testid="stSidebar"] {
 }
 
 
-/* -------------------------------------------------------
-   제목
-------------------------------------------------------- */
+/* 제목 */
 
 .main-title {
     color: #d8b66a;
@@ -422,9 +403,7 @@ section[data-testid="stSidebar"] {
 }
 
 
-/* -------------------------------------------------------
-   정보 카드
-------------------------------------------------------- */
+/* 정보 카드 */
 
 .info-card {
     background-color: #0d1b2a;
@@ -432,13 +411,15 @@ section[data-testid="stSidebar"] {
     border-radius: 15px;
     padding: 20px;
     margin-bottom: 15px;
+    min-height: 140px;
+    box-sizing: border-box;
 }
 
 .card-title {
     color: #9daaba;
     font-size: 0.8rem;
     letter-spacing: 0.1em;
-    margin-bottom: 8px;
+    margin-bottom: 12px;
 }
 
 .card-value {
@@ -448,9 +429,7 @@ section[data-testid="stSidebar"] {
 }
 
 
-/* -------------------------------------------------------
-   타이머
-------------------------------------------------------- */
+/* 타이머 */
 
 .timer-box {
     background-color: #081522;
@@ -479,9 +458,7 @@ section[data-testid="stSidebar"] {
 }
 
 
-/* -------------------------------------------------------
-   섹션 제목
-------------------------------------------------------- */
+/* 섹션 */
 
 .section-title {
     color: #d8b66a;
@@ -492,11 +469,8 @@ section[data-testid="stSidebar"] {
 }
 
 
-/* -------------------------------------------------------
-   출항 / 정박 / 초기화 버튼
-------------------------------------------------------- */
+/* 버튼 */
 
-/* 기본 버튼 */
 div.stButton > button {
     background-color: #102235 !important;
     color: #f1d58b !important;
@@ -506,32 +480,20 @@ div.stButton > button {
     min-height: 45px !important;
 }
 
-
-/* 버튼 안의 모든 글씨 */
-div.stButton > button p,
-div.stButton > button span,
-div.stButton > button div {
+div.stButton > button p {
     color: #f1d58b !important;
 }
 
-
-/* 마우스를 올렸을 때 */
 div.stButton > button:hover {
     background-color: #1a3047 !important;
     color: #ffffff !important;
     border-color: #f1d58b !important;
 }
 
-
-/* hover 시 글씨 */
-div.stButton > button:hover p,
-div.stButton > button:hover span,
-div.stButton > button:hover div {
+div.stButton > button:hover p {
     color: #ffffff !important;
 }
 
-
-/* 비활성 버튼 */
 div.stButton > button:disabled {
     background-color: #0b1724 !important;
     color: #718096 !important;
@@ -539,18 +501,19 @@ div.stButton > button:disabled {
     opacity: 1 !important;
 }
 
-
-/* 비활성 버튼 글씨 */
-div.stButton > button:disabled p,
-div.stButton > button:disabled span,
-div.stButton > button:disabled div {
+div.stButton > button:disabled p {
     color: #718096 !important;
 }
 
 
-/* -------------------------------------------------------
-   Streamlit 기본 텍스트
-------------------------------------------------------- */
+/* 안내 박스 */
+
+div[data-testid="stAlert"] {
+    border-radius: 10px;
+}
+
+
+/* 기본 캡션 */
 
 .stCaption {
     color: #9daaba !important;
@@ -558,7 +521,7 @@ div.stButton > button:disabled div {
 
 </style>
 """,
-    unsafe_allow_html=True
+unsafe_allow_html=True
 )
 
 
@@ -570,29 +533,20 @@ with st.sidebar:
 
     st.markdown(
         """
-        <div style="
-            color:#d8b66a;
-            font-size:1.35rem;
-            font-weight:700;
-            margin-bottom:10px;
-        ">
-            ⚓ CELESTIAL LOGBOOK
-        </div>
-        """,
+<div style="color:#d8b66a;font-size:1.35rem;font-weight:700;margin-bottom:10px;">
+⚓ CELESTIAL LOGBOOK
+</div>
+""",
         unsafe_allow_html=True
     )
 
     st.markdown(
         """
-        <div style="
-            color:#9daaba;
-            line-height:1.6;
-            margin-bottom:20px;
-        ">
-        공부한 시간을 항해 거리로 바꾸어
-        나만의 항해일지를 만들어보세요.
-        </div>
-        """,
+<div style="color:#9daaba;line-height:1.6;margin-bottom:20px;">
+공부한 시간을 항해 거리로 바꾸어
+나만의 항해일지를 만들어보세요.
+</div>
+""",
         unsafe_allow_html=True
     )
 
@@ -619,7 +573,6 @@ with st.sidebar:
 
     st.session_state.selected_mode = mode
 
-    # 지정 항로일 때 목적지 선택
     if mode == "지정 항로":
 
         destination = st.selectbox(
@@ -644,22 +597,18 @@ with st.sidebar:
 
     st.divider()
 
-    # 오늘의 하늘
     today = get_kst_now().date()
 
     st.markdown("### 오늘의 하늘")
 
     st.markdown(
         f"""
-        <div style="
-            color:#f4efe2;
-            line-height:1.8;
-        ">
-        📅 {today.strftime("%Y년 %m월 %d일")}<br>
-        ✦ {CONSTELLATIONS[today.month]}<br>
-        {get_moon_phase(today)}
-        </div>
-        """,
+<div style="color:#f4efe2;line-height:1.8;">
+📅 {today.strftime("%Y년 %m월 %d일")}<br>
+✦ {CONSTELLATIONS[today.month]}<br>
+{get_moon_phase(today)}
+</div>
+""",
         unsafe_allow_html=True
     )
 
@@ -680,93 +629,70 @@ st.markdown(
 
 
 # =========================================================
-# 상단 정보
+# 상단 카드
 # =========================================================
 
 col1, col2, col3 = st.columns(3)
 
 
-# 현재 모드
+# CURRENT MODE
 with col1:
 
     st.markdown(
         f"""
-        <div class="info-card">
-            <div class="card-title">
-                CURRENT MODE
-            </div>
-
-            <div class="card-value">
-                {mode}
-            </div>
-        </div>
-        """,
+<div class="info-card">
+<div class="card-title">CURRENT MODE</div>
+<div class="card-value">{mode}</div>
+</div>
+""",
         unsafe_allow_html=True
     )
 
 
-# 목적지
+# DESTINATION
 with col2:
 
     if mode == "지정 항로":
-
-        destination_text = (
-            st.session_state.selected_destination
-        )
+        destination_text = st.session_state.selected_destination
 
     elif mode == "뽀모도로":
-
         destination_text = "25분 항해"
 
     else:
-
         destination_text = "자유 항해"
 
     st.markdown(
         f"""
-        <div class="info-card">
-            <div class="card-title">
-                DESTINATION
-            </div>
-
-            <div class="card-value">
-                {destination_text}
-            </div>
-        </div>
-        """,
+<div class="info-card">
+<div class="card-title">DESTINATION</div>
+<div class="card-value">{destination_text}</div>
+</div>
+""",
         unsafe_allow_html=True
     )
 
 
-# 항해 방식
+# VOYAGE
 with col3:
 
     if mode == "뽀모도로":
-
         voyage_text = "25 MIN"
-
     else:
-
         voyage_text = "FREE"
 
     st.markdown(
         f"""
-        <div class="info-card">
-            <div class="card-title">
-                VOYAGE
-            </div>
-
-            <div class="card-value">
-                {voyage_text}
-            </div>
-        </div>
-        """,
+<div class="info-card">
+<div class="card-title">VOYAGE</div>
+<div class="card-value">{voyage_text}</div>
+</div>
+""",
         unsafe_allow_html=True
     )
 
 
 # =========================================================
-# 타이머 화면
+# 타이머
 # =========================================================
 
 @st.fragment(run_every=1)
@@ -774,14 +700,14 @@ def show_timer():
 
     elapsed = get_elapsed_seconds()
 
-    # 뽀모도로 모드
+    # 뽀모도로
     if st.session_state.selected_mode == "뽀모도로":
 
-        total = 25 * 60
+        total_seconds = 25 * 60
 
         remaining = max(
             0,
-            total - elapsed
+            total_seconds - elapsed
         )
 
         timer_text = format_time(
@@ -795,40 +721,34 @@ def show_timer():
             elapsed
         )
 
-    # -----------------------------------------------------
-    # 타이머 HTML
-    # -----------------------------------------------------
+    # 중요:
+    # HTML 태그를 들여쓰기하지 않고
+    # 직접 붙여서 Markdown이 코드 블록으로
+    # 오인하지 않도록 함.
+
+    timer_html = (
+        '<div class="timer-box">'
+        '<div class="timer-label">CURRENT VOYAGE</div>'
+        f'<div class="timer-number">{timer_text}</div>'
+        '</div>'
+    )
 
     st.markdown(
-        f"""
-        <div class="timer-box">
-
-            <div class="timer-label">
-                CURRENT VOYAGE
-            </div>
-
-            <div class="timer-number">
-                {timer_text}
-            </div>
-
-        </div>
-        """,
+        timer_html,
         unsafe_allow_html=True
     )
 
 
-# 타이머 실행
 show_timer()
 
 
 # =========================================================
-# 출항 / 정박 / 초기화 버튼
+# 버튼
 # =========================================================
 
 col1, col2, col3 = st.columns(3)
 
 
-# 출항
 with col1:
 
     start_clicked = st.button(
@@ -839,7 +759,6 @@ with col1:
     )
 
 
-# 정박
 with col2:
 
     stop_clicked = st.button(
@@ -850,7 +769,6 @@ with col2:
     )
 
 
-# 초기화
 with col3:
 
     reset_clicked = st.button(
@@ -861,12 +779,11 @@ with col3:
 
 
 # =========================================================
-# 출항 처리
+# 출항
 # =========================================================
 
 if start_clicked:
 
-    # 새로운 공부 구간 시작
     st.session_state.start_time = get_kst_now()
 
     st.session_state.timer_running = True
@@ -875,7 +792,7 @@ if start_clicked:
 
 
 # =========================================================
-# 정박 처리
+# 정박
 # =========================================================
 
 if stop_clicked:
@@ -886,7 +803,6 @@ if stop_clicked:
 
     if start is not None:
 
-        # 이번 출항 구간의 실제 공부 시간
         segment_seconds = int(
             (
                 now - start
@@ -898,19 +814,16 @@ if stop_clicked:
             segment_seconds
         )
 
-        # 누적 시간에 추가
         st.session_state.elapsed_seconds += (
             segment_seconds
         )
 
-        # 항해일지 저장
         save_session(
             start,
             now,
             st.session_state.selected_mode
         )
 
-    # 정박 상태로 변경
     st.session_state.start_time = None
 
     st.session_state.timer_running = False
@@ -919,7 +832,7 @@ if stop_clicked:
 
 
 # =========================================================
-# 초기화 처리
+# 초기화
 # =========================================================
 
 if reset_clicked:
@@ -934,7 +847,7 @@ if reset_clicked:
 
 
 # =========================================================
-# 현재 상태 표시
+# 상태 표시
 # =========================================================
 
 if st.session_state.timer_running:
@@ -1028,7 +941,7 @@ if mode == "지정 항로":
 
 
 # =========================================================
-# 뽀모도로 안내
+# 뽀모도로
 # =========================================================
 
 if mode == "뽀모도로":
@@ -1042,31 +955,20 @@ if mode == "뽀모도로":
         POMODORO_ROUTE
     )
 
+    pomodoro_html = (
+        '<div class="info-card">'
+        '<div class="card-title">CURRENT ROUTE</div>'
+        f'<div style="color:#f4efe2;font-size:1.15rem;margin-bottom:10px;">'
+        f'{route}'
+        '</div>'
+        '<div style="color:#9daaba;line-height:1.7;">'
+        '25분 집중하면 하나의 항해 기록이 저장됩니다.'
+        '</div>'
+        '</div>'
+    )
+
     st.markdown(
-        f"""
-        <div class="info-card">
-
-            <div class="card-title">
-                CURRENT ROUTE
-            </div>
-
-            <div style="
-                color:#f4efe2;
-                font-size:1.15rem;
-                margin-bottom:10px;
-            ">
-                {route}
-            </div>
-
-            <div style="
-                color:#9daaba;
-                line-height:1.7;
-            ">
-                25분 집중하면 하나의 항해 기록이 저장됩니다.
-            </div>
-
-        </div>
-        """,
+        pomodoro_html,
         unsafe_allow_html=True
     )
 
