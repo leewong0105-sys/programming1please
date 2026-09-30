@@ -749,15 +749,28 @@ show_timer()
 col1, col2, col3 = st.columns(3)
 
 
+# ---------------------------------------------------------
+# 출항 / 다시 출항
+# ---------------------------------------------------------
+
 with col1:
 
+    if st.session_state.elapsed_seconds > 0:
+        start_label = "⚓ 다시 출항"
+    else:
+        start_label = "⚓ 출항"
+
     start_clicked = st.button(
-        "⚓ 출항",
+        start_label,
         key="start_timer_button",
         use_container_width=True,
         disabled=st.session_state.timer_running
     )
 
+
+# ---------------------------------------------------------
+# 정박
+# ---------------------------------------------------------
 
 with col2:
 
@@ -769,6 +782,10 @@ with col2:
     )
 
 
+# ---------------------------------------------------------
+# 초기화
+# ---------------------------------------------------------
+
 with col3:
 
     reset_clicked = st.button(
@@ -778,6 +795,80 @@ with col3:
     )
 
 
+# =========================================================
+# 출항 처리
+# =========================================================
+
+if start_clicked:
+
+    # 현재 시각을 새로운 항해 구간의 시작 시각으로 저장
+    st.session_state.start_time = get_kst_now()
+
+    # 항해 상태로 변경
+    st.session_state.timer_running = True
+
+    st.rerun()
+
+
+# =========================================================
+# 정박 처리
+# =========================================================
+
+if stop_clicked:
+
+    now = get_kst_now()
+
+    start = st.session_state.start_time
+
+    if start is not None:
+
+        # 이번 항해 구간에서 공부한 시간 계산
+        segment_seconds = int(
+            (
+                now - start
+            ).total_seconds()
+        )
+
+        segment_seconds = max(
+            0,
+            segment_seconds
+        )
+
+        # 기존 누적 시간에 이번 구간 추가
+        st.session_state.elapsed_seconds += (
+            segment_seconds
+        )
+
+        # 항해일지에 이번 구간 저장
+        save_session(
+            start,
+            now,
+            st.session_state.selected_mode
+        )
+
+    # 중요:
+    # 정박하면 시작 시각만 초기화하고
+    # 누적 시간은 절대 초기화하지 않는다.
+    st.session_state.start_time = None
+
+    st.session_state.timer_running = False
+
+    st.rerun()
+
+
+# =========================================================
+# 초기화 처리
+# =========================================================
+
+if reset_clicked:
+
+    st.session_state.timer_running = False
+
+    st.session_state.start_time = None
+
+    st.session_state.elapsed_seconds = 0
+
+    st.rerun()
 # =========================================================
 # 출항
 # =========================================================
