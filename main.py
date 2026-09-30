@@ -1,5 +1,3 @@
-# main.py
-
 import streamlit as st
 import pandas as pd
 import math
@@ -263,7 +261,6 @@ def save_session(start_time, end_time, mode):
         seconds / 60
     )
 
-    # 너무 짧은 기록은 0분으로 저장
     minutes = round(minutes, 1)
 
     distance = (
@@ -302,7 +299,6 @@ if "timer_running" not in st.session_state:
 if "start_time" not in st.session_state:
     st.session_state.start_time = None
 
-# 정박할 때 확정되는 누적 시간
 if "elapsed_seconds" not in st.session_state:
     st.session_state.elapsed_seconds = 0
 
@@ -311,10 +307,6 @@ if "selected_mode" not in st.session_state:
 
 if "selected_destination" not in st.session_state:
     st.session_state.selected_destination = "도쿄"
-
-# 현재 출항 구간이 이미 저장되었는지 확인
-if "current_session_saved" not in st.session_state:
-    st.session_state.current_session_saved = False
 
 
 # =========================================================
@@ -372,30 +364,6 @@ section[data-testid="stSidebar"] {
     color: #f1d58b;
     font-size: 1.4rem;
     font-weight: 700;
-}
-
-.timer-box {
-    background-color: #081522;
-    border: 1px solid #8e743d;
-    border-radius: 18px;
-    padding: 45px 20px;
-    margin: 25px 0;
-    text-align: center;
-}
-
-.timer-label {
-    color: #9daaba;
-    font-size: 0.9rem;
-    letter-spacing: 0.18em;
-    margin-bottom: 15px;
-}
-
-.timer-number {
-    color: #f1d58b;
-    font-size: 5rem;
-    font-weight: 700;
-    line-height: 1;
-    font-variant-numeric: tabular-nums;
 }
 
 .section-title {
@@ -464,7 +432,8 @@ with st.sidebar:
         ].index(
             st.session_state.selected_mode
         ),
-        label_visibility="collapsed"
+        label_visibility="collapsed",
+        key="mode_radio"
     )
 
     st.session_state.selected_mode = mode
@@ -478,7 +447,8 @@ with st.sidebar:
                 DESTINATIONS.keys()
             ).index(
                 st.session_state.selected_destination
-            )
+            ),
+            key="destination_select"
         )
 
         st.session_state.selected_destination = destination
@@ -552,12 +522,17 @@ with col1:
 with col2:
 
     if mode == "지정 항로":
-        destination_text = st.session_state.selected_destination
+
+        destination_text = (
+            st.session_state.selected_destination
+        )
 
     elif mode == "뽀모도로":
+
         destination_text = "25분 항해"
 
     else:
+
         destination_text = "자유 항해"
 
     st.markdown(
@@ -576,9 +551,11 @@ with col2:
 with col3:
 
     if mode == "뽀모도로":
+
         voyage_text = "25 MIN"
 
     else:
+
         voyage_text = "FREE"
 
     st.markdown(
@@ -595,7 +572,7 @@ with col3:
 
 
 # =========================================================
-# 현재까지의 실제 경과 시간
+# 경과 시간 계산
 # =========================================================
 
 def get_elapsed_seconds():
@@ -603,61 +580,19 @@ def get_elapsed_seconds():
     # 정박 상태
     if not st.session_state.timer_running:
 
-        return st.session_state.elapsed_seconds
-
-    # 출항 상태인데 시작 시간이 없다면
-    if st.session_state.start_time is None:
-
-        return st.session_state.elapsed_seconds
-
-    now = get_kst_now()
-
-    current_seconds = (
-        now - st.session_state.start_time
-    ).total_seconds()
-
-    return (
-        st.session_state.elapsed_seconds
-        + max(0, int(current_seconds))
-    )
-
-
-# =========================================================
-# 타이머 상태
-# =========================================================
-
-if "timer_running" not in st.session_state:
-    st.session_state.timer_running = False
-
-if "start_time" not in st.session_state:
-    st.session_state.start_time = None
-
-# 정박했을 때 확정된 누적 초
-if "elapsed_seconds" not in st.session_state:
-    st.session_state.elapsed_seconds = 0
-
-if "pomodoro_saved" not in st.session_state:
-    st.session_state.pomodoro_saved = False
-
-
-# =========================================================
-# 현재까지 공부한 시간 계산
-# =========================================================
-
-def get_elapsed_seconds():
-
-    # 정박 상태
-    if not st.session_state.timer_running:
         return st.session_state.elapsed_seconds
 
     # 출항 상태인데 시작 시간이 없으면
     if st.session_state.start_time is None:
+
         return st.session_state.elapsed_seconds
 
     now = get_kst_now()
 
     current_seconds = int(
-        (now - st.session_state.start_time).total_seconds()
+        (
+            now - st.session_state.start_time
+        ).total_seconds()
     )
 
     return (
@@ -672,7 +607,10 @@ def get_elapsed_seconds():
 
 def format_time(seconds):
 
-    seconds = max(0, int(seconds))
+    seconds = max(
+        0,
+        int(seconds)
+    )
 
     minutes = seconds // 60
     seconds = seconds % 60
@@ -689,10 +627,7 @@ def show_timer():
 
     elapsed = get_elapsed_seconds()
 
-    # ---------------------------------------------
-    # 뽀모도로
-    # ---------------------------------------------
-
+    # 뽀모도로는 남은 시간을 표시
     if st.session_state.selected_mode == "뽀모도로":
 
         total = 25 * 60
@@ -702,19 +637,15 @@ def show_timer():
             total - elapsed
         )
 
-        timer_text = format_time(remaining)
-
-    # ---------------------------------------------
-    # 일반 타이머
-    # ---------------------------------------------
+        timer_text = format_time(
+            remaining
+        )
 
     else:
 
-        timer_text = format_time(elapsed)
-
-    # ---------------------------------------------
-    # 화면
-    # ---------------------------------------------
+        timer_text = format_time(
+            elapsed
+        )
 
     st.markdown(
         f"""
@@ -726,6 +657,7 @@ def show_timer():
             margin:25px 0;
             text-align:center;
         ">
+
             <div style="
                 color:#9daaba;
                 font-size:14px;
@@ -744,6 +676,7 @@ def show_timer():
             ">
                 {timer_text}
             </div>
+
         </div>
         """,
         unsafe_allow_html=True
@@ -757,32 +690,35 @@ show_timer()
 # 버튼
 # =========================================================
 
-col1, col2, col3 = st.columns(3)
+button_col1, button_col2, button_col3 = st.columns(3)
 
 
-with col1:
+with button_col1:
 
     start_clicked = st.button(
         "⚓ 출항",
         use_container_width=True,
-        disabled=st.session_state.timer_running
+        disabled=st.session_state.timer_running,
+        key="start_timer_button"
     )
 
 
-with col2:
+with button_col2:
 
     stop_clicked = st.button(
         "⏸ 정박",
         use_container_width=True,
-        disabled=not st.session_state.timer_running
+        disabled=not st.session_state.timer_running,
+        key="stop_timer_button"
     )
 
 
-with col3:
+with button_col3:
 
     reset_clicked = st.button(
         "↻ 초기화",
-        use_container_width=True
+        use_container_width=True,
+        key="reset_timer_button"
     )
 
 
@@ -792,140 +728,10 @@ with col3:
 
 if start_clicked:
 
-    # 지금부터 새로운 시간 측정 시작
+    # 현재 시각부터 새로운 구간 시작
     st.session_state.start_time = get_kst_now()
 
     st.session_state.timer_running = True
-
-    st.session_state.pomodoro_saved = False
-
-    st.rerun()
-
-
-# =========================================================
-# 정박
-# =========================================================
-
-if stop_clicked:
-
-    now = get_kst_now()
-
-    if st.session_state.start_time is not None:
-
-        # 이번 출항 구간의 시간
-        current_seconds = int(
-            (
-                now
-                - st.session_state.start_time
-            ).total_seconds()
-        )
-
-        current_seconds = max(
-            0,
-            current_seconds
-        )
-
-        # 누적 시간에 추가
-        st.session_state.elapsed_seconds += (
-            current_seconds
-        )
-
-        # 기록 저장
-        save_session(
-            st.session_state.start_time,
-            now,
-            st.session_state.selected_mode
-        )
-
-    # 정박
-    st.session_state.start_time = None
-
-    st.session_state.timer_running = False
-
-    st.rerun()
-
-
-# =========================================================
-# 초기화
-# =========================================================
-
-if reset_clicked:
-
-    st.session_state.timer_running = False
-
-    st.session_state.start_time = None
-
-    st.session_state.elapsed_seconds = 0
-
-    st.session_state.pomodoro_saved = False
-
-    st.rerun()
-            
-
-# =========================================================
-# 상태 표시
-# =========================================================
-
-if st.session_state.timer_running:
-
-    st.info("⚓ 항해 중입니다.")
-
-else:
-
-    if st.session_state.elapsed_seconds > 0:
-
-        st.success("⏸ 정박 중입니다. 다시 출항하면 이어서 진행합니다.")
-
-    else:
-
-        st.caption("출항 버튼을 누르면 항해가 시작됩니다.")
-
-
-# =========================================================
-# 버튼
-# =========================================================
-
-button1, button2, button3 = st.columns(3)
-
-
-with button1:
-
-    start_clicked = st.button(
-        "⚓ 출항",
-        use_container_width=True,
-        disabled=st.session_state.timer_running
-    )
-
-
-with button2:
-
-    stop_clicked = st.button(
-        "⏸ 정박",
-        use_container_width=True,
-        disabled=not st.session_state.timer_running
-    )
-
-
-with button3:
-
-    reset_clicked = st.button(
-        "↻ 초기화",
-        use_container_width=True
-    )
-
-
-# =========================================================
-# 출항
-# =========================================================
-
-if start_clicked:
-
-    # 지금부터 새로운 구간 시작
-    st.session_state.start_time = get_kst_now()
-
-    st.session_state.timer_running = True
-
-    st.session_state.current_session_saved = False
 
     st.rerun()
 
@@ -942,34 +748,34 @@ if stop_clicked:
 
     if start is not None:
 
-        # 이번 구간의 실제 공부 시간
-        segment_seconds = (
-            now - start
-        ).total_seconds()
+        # 이번 출항 구간의 실제 시간
+        segment_seconds = int(
+            (
+                now - start
+            ).total_seconds()
+        )
 
         segment_seconds = max(
             0,
-            int(segment_seconds)
+            segment_seconds
         )
 
-        # 누적 시간에 추가
+        # 지금까지 누적된 시간에 추가
         st.session_state.elapsed_seconds += (
             segment_seconds
         )
 
-        # 이번 구간을 항해일지에 저장
+        # 항해일지에 기록
         save_session(
             start,
             now,
             st.session_state.selected_mode
         )
 
-    # 정박
+    # 정박 상태로 변경
     st.session_state.start_time = None
 
     st.session_state.timer_running = False
-
-    st.session_state.current_session_saved = True
 
     st.rerun()
 
@@ -986,9 +792,30 @@ if reset_clicked:
 
     st.session_state.elapsed_seconds = 0
 
-    st.session_state.current_session_saved = False
-
     st.rerun()
+
+
+# =========================================================
+# 상태 표시
+# =========================================================
+
+if st.session_state.timer_running:
+
+    st.info("⚓ 항해 중입니다.")
+
+else:
+
+    if st.session_state.elapsed_seconds > 0:
+
+        st.success(
+            "⏸ 정박 중입니다. 다시 출항하면 이어서 진행합니다."
+        )
+
+    else:
+
+        st.caption(
+            "출항 버튼을 누르면 항해가 시작됩니다."
+        )
 
 
 # =========================================================
@@ -1025,10 +852,16 @@ if mode == "지정 항로":
         st.session_state.selected_destination
     )
 
-    progress = min(
-        total_distance / destination_distance,
-        1.0
-    )
+    if destination_distance > 0:
+
+        progress = min(
+            total_distance / destination_distance,
+            1.0
+        )
+
+    else:
+
+        progress = 0
 
     st.markdown(
         '<div class="section-title">🧭 항로 진행도</div>',
@@ -1037,16 +870,16 @@ if mode == "지정 항로":
 
     st.progress(progress)
 
-    col1, col2 = st.columns(2)
+    progress_col1, progress_col2 = st.columns(2)
 
-    with col1:
+    with progress_col1:
 
         st.metric(
             "현재까지 전진",
             f"{total_distance:,.1f} NM"
         )
 
-    with col2:
+    with progress_col2:
 
         st.metric(
             "목적지까지",
@@ -1065,7 +898,9 @@ if mode == "뽀모도로":
         unsafe_allow_html=True
     )
 
-    route = " → ".join(POMODORO_ROUTE)
+    route = " → ".join(
+        POMODORO_ROUTE
+    )
 
     st.markdown(
         f"""
