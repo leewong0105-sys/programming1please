@@ -623,17 +623,75 @@ def get_elapsed_seconds():
 
 
 # =========================================================
-# 타이머
+# 타이머 상태
+# =========================================================
+
+if "timer_running" not in st.session_state:
+    st.session_state.timer_running = False
+
+if "start_time" not in st.session_state:
+    st.session_state.start_time = None
+
+# 정박했을 때 확정된 누적 초
+if "elapsed_seconds" not in st.session_state:
+    st.session_state.elapsed_seconds = 0
+
+if "pomodoro_saved" not in st.session_state:
+    st.session_state.pomodoro_saved = False
+
+
+# =========================================================
+# 현재까지 공부한 시간 계산
+# =========================================================
+
+def get_elapsed_seconds():
+
+    # 정박 상태
+    if not st.session_state.timer_running:
+        return st.session_state.elapsed_seconds
+
+    # 출항 상태인데 시작 시간이 없으면
+    if st.session_state.start_time is None:
+        return st.session_state.elapsed_seconds
+
+    now = get_kst_now()
+
+    current_seconds = int(
+        (now - st.session_state.start_time).total_seconds()
+    )
+
+    return (
+        st.session_state.elapsed_seconds
+        + max(0, current_seconds)
+    )
+
+
+# =========================================================
+# 시간 → MM:SS
+# =========================================================
+
+def format_time(seconds):
+
+    seconds = max(0, int(seconds))
+
+    minutes = seconds // 60
+    seconds = seconds % 60
+
+    return f"{minutes:02d}:{seconds:02d}"
+
+
+# =========================================================
+# 타이머 표시
 # =========================================================
 
 @st.fragment(run_every=1)
-def timer_display():
+def show_timer():
 
     elapsed = get_elapsed_seconds()
 
-    # -----------------------------------------------------
+    # ---------------------------------------------
     # 뽀모도로
-    # -----------------------------------------------------
+    # ---------------------------------------------
 
     if st.session_state.selected_mode == "뽀모도로":
 
@@ -644,74 +702,46 @@ def timer_display():
             total - elapsed
         )
 
-        minutes = int(remaining) // 60
-        seconds = int(remaining) % 60
+        timer_text = format_time(remaining)
 
-        timer_text = f"{minutes:02d}:{seconds:02d}"
-
-        # 25분 도달
-        if (
-            st.session_state.timer_running
-            and elapsed >= total
-        ):
-
-            # 실제 출항 시작 시각
-            start = st.session_state.start_time
-
-            # 25분이 되는 정확한 시각
-            finish_time = (
-                start
-                + timedelta(
-                    seconds=(
-                        total
-                        - st.session_state.elapsed_seconds
-                    )
-                )
-            )
-
-            # 아직 저장하지 않았다면 한 번만 저장
-            if not st.session_state.current_session_saved:
-
-                save_session(
-                    start,
-                    finish_time,
-                    "뽀모도로"
-                )
-
-                st.session_state.current_session_saved = True
-
-            # 타이머를 정확히 25분으로 고정
-            st.session_state.elapsed_seconds = total
-
-            st.session_state.start_time = None
-
-            st.session_state.timer_running = False
-
-            timer_text = "00:00"
-
-    # -----------------------------------------------------
+    # ---------------------------------------------
     # 일반 타이머
-    # -----------------------------------------------------
+    # ---------------------------------------------
 
     else:
 
-        minutes = int(elapsed) // 60
-        seconds = int(elapsed) % 60
+        timer_text = format_time(elapsed)
 
-        timer_text = f"{minutes:02d}:{seconds:02d}"
-
-    # -----------------------------------------------------
-    # 화면 표시
-    # -----------------------------------------------------
+    # ---------------------------------------------
+    # 화면
+    # ---------------------------------------------
 
     st.markdown(
         f"""
-        <div class="timer-box">
-            <div class="timer-label">
+        <div style="
+            background:#081522;
+            border:1px solid #8e743d;
+            border-radius:18px;
+            padding:40px 20px;
+            margin:25px 0;
+            text-align:center;
+        ">
+            <div style="
+                color:#9daaba;
+                font-size:14px;
+                letter-spacing:3px;
+                margin-bottom:12px;
+            ">
                 CURRENT VOYAGE
             </div>
 
-            <div class="timer-number">
+            <div style="
+                color:#f1d58b;
+                font-size:72px;
+                font-weight:700;
+                line-height:1.1;
+                font-family:monospace;
+            ">
                 {timer_text}
             </div>
         </div>
@@ -720,8 +750,117 @@ def timer_display():
     )
 
 
-timer_display()
+show_timer()
 
+
+# =========================================================
+# 버튼
+# =========================================================
+
+col1, col2, col3 = st.columns(3)
+
+
+with col1:
+
+    start_clicked = st.button(
+        "⚓ 출항",
+        use_container_width=True,
+        disabled=st.session_state.timer_running
+    )
+
+
+with col2:
+
+    stop_clicked = st.button(
+        "⏸ 정박",
+        use_container_width=True,
+        disabled=not st.session_state.timer_running
+    )
+
+
+with col3:
+
+    reset_clicked = st.button(
+        "↻ 초기화",
+        use_container_width=True
+    )
+
+
+# =========================================================
+# 출항
+# =========================================================
+
+if start_clicked:
+
+    # 지금부터 새로운 시간 측정 시작
+    st.session_state.start_time = get_kst_now()
+
+    st.session_state.timer_running = True
+
+    st.session_state.pomodoro_saved = False
+
+    st.rerun()
+
+
+# =========================================================
+# 정박
+# =========================================================
+
+if stop_clicked:
+
+    now = get_kst_now()
+
+    if st.session_state.start_time is not None:
+
+        # 이번 출항 구간의 시간
+        current_seconds = int(
+            (
+                now
+                - st.session_state.start_time
+            ).total_seconds()
+        )
+
+        current_seconds = max(
+            0,
+            current_seconds
+        )
+
+        # 누적 시간에 추가
+        st.session_state.elapsed_seconds += (
+            current_seconds
+        )
+
+        # 기록 저장
+        save_session(
+            st.session_state.start_time,
+            now,
+            st.session_state.selected_mode
+        )
+
+    # 정박
+    st.session_state.start_time = None
+
+    st.session_state.timer_running = False
+
+    st.rerun()
+
+
+# =========================================================
+# 초기화
+# =========================================================
+
+if reset_clicked:
+
+    st.session_state.timer_running = False
+
+    st.session_state.start_time = None
+
+    st.session_state.elapsed_seconds = 0
+
+    st.session_state.pomodoro_saved = False
+
+    st.rerun()
+            
 
 # =========================================================
 # 상태 표시
