@@ -1,5 +1,7 @@
 import time
+from pathlib import Path
 import streamlit as st
+import plotly.graph_objects as go
 
 # =========================
 # 게임 상수
@@ -36,6 +38,15 @@ TRANSPORT = [
 
 CHECKPOINTS = {2030: 80, 2040: 30, 2050: 0}
 AUTO_ROUTE = ["로테르담", "싱가포르", "상하이", "도쿄"]
+
+# 실제 지리 좌표: 위도, 경도
+PORT_COORDS = {
+    "부산": (35.1796, 129.0756),
+    "도쿄": (35.6762, 139.6503),
+    "상하이": (31.2304, 121.4737),
+    "싱가포르": (1.3521, 103.8198),
+    "로테르담": (51.9244, 4.4777),
+}
 
 
 def init():
@@ -227,6 +238,77 @@ def finish_return():
     st.session_state.msg = "회항 완료. 운임은 받지 않았고 연도도 그대로입니다."
 
 
+def make_route_map():
+    """OpenStreetMap 바탕지도 위에 실제 항로와 현재 선박 위치를 표시한다."""
+    fig = go.Figure()
+    # 목적지 항구들을 지도에 표시
+    port_names = list(PORT_COORDS.keys())
+    fig.add_trace(go.Scattermapbox(
+        lat=[PORT_COORDS[name][0] for name in port_names],
+        lon=[PORT_COORDS[name][1] for name in port_names],
+        mode="markers+text",
+        marker={"size": 10, "color": "#e2bd67"},
+        text=port_names,
+        textposition="top right",
+        textfont={"color": "#ffffff", "size": 11},
+        name="항구",
+        hovertemplate="%{text}<extra></extra>",
+    ))
+
+    dest_name = st.session_state.dest
+    if dest_name in PORT_COORDS:
+        start_lat, start_lon = PORT_COORDS["부산"]
+        end_lat, end_lon = PORT_COORDS[dest_name]
+        total = max(1, int(st.session_state.total))
+        fraction = min(1.0, max(0.0, st.session_state.pos / total))
+        # 지도상 선박 위치를 부산-목적지 항로 위에서 보간
+        ship_lat = start_lat + (end_lat - start_lat) * fraction
+        ship_lon = start_lon + (end_lon - start_lon) * fraction
+        fig.add_trace(go.Scattermapbox(
+            lat=[start_lat, end_lat], lon=[start_lon, end_lon],
+            mode="lines", line={"width": 4, "color": "#42c7d9"},
+            name="예정 항로", hoverinfo="skip",
+        ))
+        # 이미 이동한 구간을 별도 선으로 강조
+        fig.add_trace(go.Scattermapbox(
+            lat=[start_lat, ship_lat], lon=[start_lon, ship_lon],
+            mode="lines", line={"width": 5, "color": "#f2c14e"},
+            name="이동한 항로", hoverinfo="skip",
+        ))
+        fig.add_trace(go.Scattermapbox(
+            lat=[ship_lat], lon=[ship_lon], mode="markers+text",
+            marker={"size": 18, "color": "#ff6b6b", "symbol": "harbor"},
+            text=["🚢 선박"], textposition="bottom right",
+            textfont={"color": "#ffffff", "size": 12},
+            name="현재 선박 위치",
+            hovertemplate=f"선박 위치<br>위도 {ship_lat:.3f}<br>경도 {ship_lon:.3f}<extra></extra>",
+        ))
+    else:
+        busan_lat, busan_lon = PORT_COORDS["부산"]
+        fig.add_trace(go.Scattermapbox(
+            lat=[busan_lat], lon=[busan_lon], mode="markers+text",
+            marker={"size": 17, "color": "#ff6b6b"},
+            text=["🚢 출항 대기"], textposition="bottom right",
+            textfont={"color": "#ffffff", "size": 12},
+            name="부산항", hovertemplate="부산항<extra></extra>",
+        ))
+
+    # 선택된 항로의 중간 지점을 중심으로 하되, 정박 중에는 동아시아를 표시
+    if dest_name in PORT_COORDS:
+        center_lat = (PORT_COORDS["부산"][0] + PORT_COORDS[dest_name][0]) / 2
+        center_lon = (PORT_COORDS["부산"][1] + PORT_COORDS[dest_name][1]) / 2
+        zoom = 3 if dest_name == "로테르담" else (4 if dest_name == "싱가포르" else 5)
+    else:
+        center_lat, center_lon, zoom = 30, 125, 3
+    fig.update_layout(
+        mapbox={"style": "open-street-map", "center": {"lat": center_lat, "lon": center_lon}, "zoom": zoom},
+        height=480, margin={"l": 0, "r": 0, "t": 10, "b": 0},
+        paper_bgcolor="#071521", plot_bgcolor="#071521",
+        font={"color": "#f3f0e7"}, legend={"orientation": "h", "y": 0.02},
+    )
+    return fig
+
+
 # 페이지 설정은 다른 Streamlit 명령보다 먼저 호출한다.
 st.set_page_config(page_title="탄소중립 선박 경영", page_icon="🚢", layout="wide")
 init()
@@ -248,7 +330,12 @@ st.caption("수익을 얻어 선박을 개선하고, 2050년 탄소중립을 달
 with st.sidebar:
     st.subheader("항해 메뉴")
     st.page_link("main.py", label="메인 게임", icon="🚢")
-    st.page_link("pages/Dashboard.py", label="탄소 대시보드", icon="📊")
+    # 대시보드 파일이 저장소에 있을 때만 링크를 만든다.
+    # 파일이 누락되어도 메인 게임 전체가 PageNotFoundError로 멈추지 않는다.
+    if Path("pages/Dashboard.py").is_file():
+        st.page_link("pages/Dashboard.py", label="탄소 대시보드", icon="📊")
+    else:
+        st.caption("대시보드를 보려면 저장소에 pages/Dashboard.py 파일이 있어야 합니다.")
     st.divider()
     st.caption("게임에서는 이해를 돕기 위해 감축량과 수치를 단순화했습니다.")
 
@@ -306,6 +393,9 @@ ship_at_port = "🚢 " if position == 0 else ""
 destination_label = st.session_state.dest if st.session_state.dest else "목적지"
 track_text = f"🏭 부산 {ship_at_port}" + " ".join(track_parts) + f" 🏁 {destination_label}"
 st.markdown(f'<div class="route-track">{track_text}</div>', unsafe_allow_html=True)
+st.subheader("실제 지도와 항로")
+st.caption("실제 지리 좌표와 OpenStreetMap 지도를 사용합니다. 선박은 항해 진행도에 따라 항로를 따라 이동합니다.")
+st.plotly_chart(make_route_map(), use_container_width=True, key="live_route_map")
 progress_total = st.session_state.total
 progress_value = 0.0 if progress_total <= 0 else min(1.0, max(0.0, position / progress_total))
 st.progress(progress_value)
