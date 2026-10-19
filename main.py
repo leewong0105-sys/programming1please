@@ -283,7 +283,7 @@ def make_route_map():
     fig = go.Figure()
     # 목적지 항구들을 지도에 표시
     port_names = list(PORT_COORDS.keys())
-    fig.add_trace(go.Scattermapbox(
+    fig.add_trace(go.Scattermap(
         lat=[PORT_COORDS[name][0] for name in port_names],
         lon=[PORT_COORDS[name][1] for name in port_names],
         mode="markers+text",
@@ -304,18 +304,18 @@ def make_route_map():
         # 지도상 선박 위치를 부산-목적지 항로 위에서 보간
         ship_lat = start_lat + (end_lat - start_lat) * fraction
         ship_lon = start_lon + (end_lon - start_lon) * fraction
-        fig.add_trace(go.Scattermapbox(
+        fig.add_trace(go.Scattermap(
             lat=[start_lat, end_lat], lon=[start_lon, end_lon],
             mode="lines", line={"width": 4, "color": "#42c7d9"},
             name="예정 항로", hoverinfo="skip",
         ))
         # 이미 이동한 구간을 별도 선으로 강조
-        fig.add_trace(go.Scattermapbox(
+        fig.add_trace(go.Scattermap(
             lat=[start_lat, ship_lat], lon=[start_lon, ship_lon],
             mode="lines", line={"width": 5, "color": "#f2c14e"},
             name="이동한 항로", hoverinfo="skip",
         ))
-        fig.add_trace(go.Scattermapbox(
+        fig.add_trace(go.Scattermap(
             lat=[ship_lat], lon=[ship_lon], mode="markers+text",
             marker={"size": 18, "color": "#ff6b6b", "symbol": "circle"},
             text=["🚢 선박"], textposition="bottom right",
@@ -325,7 +325,7 @@ def make_route_map():
         ))
     else:
         busan_lat, busan_lon = PORT_COORDS["부산"]
-        fig.add_trace(go.Scattermapbox(
+        fig.add_trace(go.Scattermap(
             lat=[busan_lat], lon=[busan_lon], mode="markers+text",
             marker={"size": 17, "color": "#ff6b6b"},
             text=["🚢 출항 대기"], textposition="bottom right",
@@ -341,7 +341,7 @@ def make_route_map():
     else:
         center_lat, center_lon, zoom = 30, 125, 3
     fig.update_layout(
-        mapbox={"style": "open-street-map", "center": {"lat": center_lat, "lon": center_lon}, "zoom": zoom},
+        map={"style": "open-street-map", "center": {"lat": center_lat, "lon": center_lon}, "zoom": zoom},
         height=480, margin={"l": 0, "r": 0, "t": 10, "b": 0},
         paper_bgcolor="#071521", plot_bgcolor="#071521",
         font={"color": "#f3f0e7"}, legend={"orientation": "h", "y": 0.02},
@@ -361,7 +361,6 @@ st.markdown("""
     .stButton > button { color: #ffffff !important; background: #17465a; border: 1px solid #47788b; border-radius: 9px; }
     .stButton > button:disabled { color: #a6b3bb !important; background: #253541; }
     div[data-baseweb="tab-list"] button { color: #f3f0e7 !important; }
-    .route-track { background: #102536; border: 1px solid #29485b; border-radius: 12px; padding: 18px 12px; text-align: center; font-size: 20px; overflow-wrap: anywhere; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -426,14 +425,6 @@ if st.session_state.msg:
     st.success(st.session_state.msg)
     st.session_state.msg = ""
 
-st.subheader("항로")
-track_total = st.session_state.total if st.session_state.total > 0 else SEC_PER_YEAR
-position = st.session_state.pos
-track_parts = ["🚢" if position > 0 and i == position - 1 else "─" for i in range(track_total)]
-ship_at_port = "🚢 " if position == 0 else ""
-destination_label = st.session_state.dest if st.session_state.dest else "목적지"
-track_text = f"🏭 부산 {ship_at_port}" + " ".join(track_parts) + f" 🏁 {destination_label}"
-st.markdown(f'<div class="route-track">{track_text}</div>', unsafe_allow_html=True)
 st.subheader("실제 지도와 항로")
 st.caption("실제 지리 좌표와 OpenStreetMap 지도를 사용합니다. 선박은 항해 중 지도 위에서 이동하며, 매번 출항할 때 해상 기상이 무작위로 결정됩니다.")
 st.plotly_chart(make_route_map(), use_container_width=True, key="live_route_map")
