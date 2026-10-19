@@ -1,4 +1,5 @@
 import time
+import random
 from pathlib import Path
 import streamlit as st
 import plotly.graph_objects as go
@@ -8,32 +9,33 @@ import plotly.graph_objects as go
 # =========================
 START_YEAR = 2026
 END_YEAR = 2050
-START_MONEY = 30
+MONEY_SCALE = 100_000_000  # 기존 금액 1단위를 1억 원으로 확대
+START_MONEY = 30 * MONEY_SCALE  # 시작 자금 30억 원
 START_EMISSION = 100
 SEC_PER_YEAR = 5  # 1년은 5초, 배는 1초에 한 칸 이동
 
 DESTINATIONS = [
-    {"name": "도쿄", "years": 1, "income": 15},
-    {"name": "상하이", "years": 1, "income": 20},
-    {"name": "싱가포르", "years": 2, "income": 45},
-    {"name": "로테르담", "years": 3, "income": 80},
+    {"name": "도쿄", "years": 1, "income": 15 * MONEY_SCALE},
+    {"name": "상하이", "years": 1, "income": 20 * MONEY_SCALE},
+    {"name": "싱가포르", "years": 2, "income": 45 * MONEY_SCALE},
+    {"name": "로테르담", "years": 3, "income": 80 * MONEY_SCALE},
 ]
 
 EQUIPMENT = [
-    {"id": 1, "name": "선체 코팅·프로펠러 개선", "price": 15, "reduction": 10, "effect": "배출량 10%p 감축"},
-    {"id": 2, "name": "폐열 회수 장치", "price": 25, "reduction": 10, "effect": "배출량 10%p 감축"},
-    {"id": 3, "name": "지상전력공급장치", "price": 30, "reduction": 10, "effect": "배출량 10%p 감축"},
-    {"id": 4, "name": "풍력 보조 돛", "price": 40, "reduction": 15, "effect": "배출량 15%p 감축"},
-    {"id": 5, "name": "LNG 이중연료 엔진", "price": 60, "reduction": 15, "effect": "배출량 15%p 감축"},
-    {"id": 6, "name": "암모니아·메탄올 엔진", "price": 100, "reduction": 20, "effect": "배출량 20%p 감축"},
-    {"id": 7, "name": "탄소 포집 장치", "price": 130, "reduction": 20, "effect": "배출량 20%p 감축"},
+    {"id": 1, "name": "선체 코팅·프로펠러 개선", "price": 15 * MONEY_SCALE, "reduction": 10, "effect": "배출량 10%p 감축"},
+    {"id": 2, "name": "폐열 회수 장치", "price": 25 * MONEY_SCALE, "reduction": 10, "effect": "배출량 10%p 감축"},
+    {"id": 3, "name": "지상전력공급장치", "price": 30 * MONEY_SCALE, "reduction": 10, "effect": "배출량 10%p 감축"},
+    {"id": 4, "name": "풍력 보조 돛", "price": 40 * MONEY_SCALE, "reduction": 15, "effect": "배출량 15%p 감축"},
+    {"id": 5, "name": "LNG 이중연료 엔진", "price": 60 * MONEY_SCALE, "reduction": 15, "effect": "배출량 15%p 감축"},
+    {"id": 6, "name": "암모니아·메탄올 엔진", "price": 100 * MONEY_SCALE, "reduction": 20, "effect": "배출량 20%p 감축"},
+    {"id": 7, "name": "탄소 포집 장치", "price": 130 * MONEY_SCALE, "reduction": 20, "effect": "배출량 20%p 감축"},
 ]
 
 TRANSPORT = [
-    {"id": 1, "name": "화물 적재함 확장", "price": 20, "effect": "모든 항해 수익 +10%"},
-    {"id": 2, "name": "대형 선체로 교체", "price": 60, "effect": "모든 항해 수익 +25%"},
-    {"id": 3, "name": "고속 엔진", "price": 50, "effect": "모든 항해 기간 1년 단축 (최소 1년)"},
-    {"id": 4, "name": "자율운항선박", "price": 100, "effect": "자동 운항 기능 해금"},
+    {"id": 1, "name": "화물 적재함 확장", "price": 20 * MONEY_SCALE, "effect": "모든 항해 수익 +10%"},
+    {"id": 2, "name": "대형 선체로 교체", "price": 60 * MONEY_SCALE, "effect": "모든 항해 수익 +25%"},
+    {"id": 3, "name": "고속 엔진", "price": 50 * MONEY_SCALE, "effect": "모든 항해 기간 1년 단축 (최소 1년)"},
+    {"id": 4, "name": "자율운항선박", "price": 100 * MONEY_SCALE, "effect": "자동 운항 기능 해금"},
 ]
 
 CHECKPOINTS = {2030: 80, 2040: 30, 2050: 0}
@@ -69,6 +71,9 @@ def init():
         "fail_reason": "",
         "msg": "",
         "balloons_shown": False,
+        "weather": None,
+        "voyage_income": 0,
+        "weather_note": "",
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -94,9 +99,17 @@ def reset_game():
         "fail_reason": "",
         "msg": "",
         "balloons_shown": False,
+        "weather": None,
+        "voyage_income": 0,
+        "weather_note": "",
     }
     for key, value in defaults.items():
         st.session_state[key] = value.copy() if isinstance(value, (list, dict)) else value
+
+
+def money_label(amount):
+    """게임 금액을 만 원 단위로 읽기 쉽게 표시한다."""
+    return f"{amount // 10_000:,}만원"
 
 
 def current_emission():
@@ -136,11 +149,25 @@ def start_voyage(destination_name):
     if st.session_state.phase != "docked":
         return
     duration = actual_years(destination_name)
+    weather_options = [
+        {"name": "순풍", "seconds": -1, "income_rate": 1.05,
+         "description": "순풍을 만났습니다! 항해가 1초 빨라지고 운임이 5% 증가합니다."},
+        {"name": "잔잔한 바다", "seconds": 0, "income_rate": 1.0,
+         "description": "바다가 잔잔합니다. 항해와 운임에 변화가 없습니다."},
+        {"name": "짙은 안개", "seconds": 1, "income_rate": 1.0,
+         "description": "짙은 안개로 항해가 1초 지연됩니다."},
+        {"name": "폭풍", "seconds": 2, "income_rate": 0.90,
+         "description": "폭풍을 만났습니다! 항해가 2초 지연되고 운임이 10% 감소합니다."},
+    ]
+    weather = random.choice(weather_options)
     st.session_state.dest = destination_name
     st.session_state.pos = 0
-    st.session_state.total = duration * SEC_PER_YEAR
+    st.session_state.total = max(1, duration * SEC_PER_YEAR + weather["seconds"])
+    st.session_state.weather = weather["name"]
+    st.session_state.weather_note = weather["description"]
+    st.session_state.voyage_income = round(actual_income(destination_name) * weather["income_rate"])
     st.session_state.phase = "sailing"
-    st.session_state.msg = ""
+    st.session_state.msg = weather["description"]
 
 
 def start_auto_voyage():
@@ -191,7 +218,8 @@ def arrive():
         return
 
     duration = actual_years(destination_name)
-    st.session_state.money += actual_income(destination_name)
+    voyage_income = st.session_state.voyage_income or actual_income(destination_name)
+    st.session_state.money += voyage_income
     st.session_state.year = min(st.session_state.year + duration, END_YEAR)
     add_history()
     emission = current_emission()
@@ -227,7 +255,10 @@ def arrive():
     st.session_state.total = 0
     if st.session_state.auto_on:
         st.session_state.auto_idx = (st.session_state.auto_idx + 1) % len(AUTO_ROUTE)
-    st.session_state.msg = " ".join(passed_messages) if passed_messages else "항해 도착! 운임을 받았습니다."
+    arrival_message = f"{destination_name} 도착! 운임 {money_label(voyage_income)}을 받았습니다."
+    st.session_state.msg = " ".join(passed_messages + [arrival_message]) if passed_messages else arrival_message
+    st.session_state.weather = None
+    st.session_state.voyage_income = 0
 
 
 def finish_return():
@@ -338,6 +369,7 @@ with st.sidebar:
         st.caption("대시보드를 보려면 저장소에 pages/Dashboard.py 파일이 있어야 합니다.")
     st.divider()
     st.caption("게임에서는 이해를 돕기 위해 감축량과 수치를 단순화했습니다.")
+    st.caption("금액은 만 원 단위로 표시합니다.")
 
 if not st.session_state.started:
     st.markdown("## 바다를 항해하며 탄소중립에 도전하세요")
@@ -363,7 +395,7 @@ if st.session_state.phase == "ended":
         st.write(st.session_state.fail_reason or "점검 기준을 충족하지 못했습니다.")
     c1, c2, c3 = st.columns(3)
     c1.metric("최종 연도", f"{st.session_state.year}년")
-    c2.metric("보유 자금", f"{st.session_state.money}원")
+    c2.metric("보유 자금", money_label(st.session_state.money))
     c3.metric("현재 배출량", f"{current_emission()}%")
     if st.button("다시 시작", key="restart_game", type="primary", use_container_width=True):
         reset_game()
@@ -373,7 +405,7 @@ if st.session_state.phase == "ended":
 emission = current_emission()
 c1, c2, c3 = st.columns(3)
 c1.metric("현재 연도", f"{st.session_state.year}년")
-c2.metric("보유 자금", f"{st.session_state.money}원")
+c2.metric("보유 자금", money_label(st.session_state.money))
 c3.metric("배출량", f"{emission}%")
 next_checkpoint = next((year for year in sorted(CHECKPOINTS) if year not in st.session_state.checked), None)
 if next_checkpoint is None:
@@ -394,8 +426,10 @@ destination_label = st.session_state.dest if st.session_state.dest else "목적�
 track_text = f"🏭 부산 {ship_at_port}" + " ".join(track_parts) + f" 🏁 {destination_label}"
 st.markdown(f'<div class="route-track">{track_text}</div>', unsafe_allow_html=True)
 st.subheader("실제 지도와 항로")
-st.caption("실제 지리 좌표와 OpenStreetMap 지도를 사용합니다. 선박은 항해 진행도에 따라 항로를 따라 이동합니다.")
+st.caption("실제 지리 좌표와 OpenStreetMap 지도를 사용합니다. 선박은 항해 중 지도 위에서 이동하며, 매번 출항할 때 해상 기상이 무작위로 결정됩니다.")
 st.plotly_chart(make_route_map(), use_container_width=True, key="live_route_map")
+if st.session_state.phase in ("sailing", "returning") and st.session_state.weather_note:
+    st.info(f"🌦️ 해상 기상: {st.session_state.weather} — {st.session_state.weather_note}")
 if st.session_state.phase == "sailing":
     st.write(f"🚢 항해 중 · {st.session_state.dest} 방향 · {st.session_state.pos}/{st.session_state.total}초")
 elif st.session_state.phase == "returning":
@@ -435,7 +469,7 @@ with eq_tab:
         row = st.columns([4, 1, 1])
         with row[0]:
             st.markdown(f"**{item['name']}**")
-            st.caption(f"{item['effect']} · 가격 {item['price']}원")
+            st.caption(f"{item['effect']} · 가격 {money_label(item['price'])}")
             if not bought and not enough_money:
                 st.caption("자금 부족")
         with row[1]:
@@ -446,7 +480,7 @@ with eq_tab:
                           disabled=(st.session_state.phase != "docked" or not enough_money),
                           use_container_width=True, on_click=buy_equipment, args=(item["id"],))
         with row[2]:
-            st.write(f"{item['price']}원")
+            st.write(money_label(item["price"]))
         st.divider()
 with tr_tab:
     for item in TRANSPORT:
@@ -455,7 +489,7 @@ with tr_tab:
         row = st.columns([4, 1, 1])
         with row[0]:
             st.markdown(f"**{item['name']}**")
-            st.caption(f"{item['effect']} · 가격 {item['price']}원")
+            st.caption(f"{item['effect']} · 가격 {money_label(item['price'])}")
             if not bought and not enough_money:
                 st.caption("자금 부족")
         with row[1]:
@@ -466,7 +500,7 @@ with tr_tab:
                           disabled=(st.session_state.phase != "docked" or not enough_money),
                           use_container_width=True, on_click=buy_transport, args=(item["id"],))
         with row[2]:
-            st.write(f"{item['price']}원")
+            st.write(money_label(item["price"]))
         st.divider()
 
 if st.session_state.phase == "sailing":
