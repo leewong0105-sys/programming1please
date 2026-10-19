@@ -9,8 +9,8 @@ import plotly.graph_objects as go
 # =========================
 START_YEAR = 2026
 END_YEAR = 2050
-MONEY_SCALE = 100_000_000  # 기존 금액 1단위를 1억 원으로 확대
-START_MONEY = 30 * MONEY_SCALE  # 시작 자금 30억 원
+MONEY_SCALE = 1_000_000  # 게임 금액 1단위 = 100만 원
+START_MONEY = 30 * MONEY_SCALE  # 시작 자금 3,000만 원
 START_EMISSION = 100
 SEC_PER_YEAR = 5  # 1년은 5초, 배는 1초에 한 칸 이동
 
@@ -108,8 +108,17 @@ def reset_game():
 
 
 def money_label(amount):
-    """게임 금액을 만 원 단위로 읽기 쉽게 표시한다."""
-    return f"{amount // 10_000:,}만원"
+    """원 단위 금액을 한국어 큰 단위로 읽기 쉽게 표시한다."""
+    amount = max(0, int(amount))
+    eok = amount // 100_000_000
+    man = (amount % 100_000_000) // 10_000
+    if eok and man:
+        return f"{eok}억 {man:,}만원"
+    if eok:
+        return f"{eok}억원"
+    if man:
+        return f"{man:,}만원"
+    return f"{amount:,}원"
 
 
 def current_emission():
@@ -159,7 +168,7 @@ def start_voyage(destination_name):
         {"name": "폭풍", "seconds": 2, "income_rate": 0.90,
          "description": "폭풍을 만났습니다! 항해가 2초 지연되고 운임이 10% 감소합니다."},
     ]
-    weather = random.choice(weather_options)
+    weather = random.choices(weather_options, weights=[2, 3, 3, 3], k=1)[0]  # 악천후가 조금 더 자주 발생하도록 조정
     st.session_state.dest = destination_name
     st.session_state.pos = 0
     st.session_state.total = max(1, duration * SEC_PER_YEAR + weather["seconds"])
@@ -274,7 +283,7 @@ def make_route_map():
     fig = go.Figure()
     # 목적지 항구들을 지도에 표시
     port_names = list(PORT_COORDS.keys())
-    fig.add_trace(go.Scattermap(
+    fig.add_trace(go.Scattermapbox(
         lat=[PORT_COORDS[name][0] for name in port_names],
         lon=[PORT_COORDS[name][1] for name in port_names],
         mode="markers+text",
@@ -295,20 +304,20 @@ def make_route_map():
         # 지도상 선박 위치를 부산-목적지 항로 위에서 보간
         ship_lat = start_lat + (end_lat - start_lat) * fraction
         ship_lon = start_lon + (end_lon - start_lon) * fraction
-        fig.add_trace(go.Scattermap(
+        fig.add_trace(go.Scattermapbox(
             lat=[start_lat, end_lat], lon=[start_lon, end_lon],
             mode="lines", line={"width": 4, "color": "#42c7d9"},
             name="예정 항로", hoverinfo="skip",
         ))
         # 이미 이동한 구간을 별도 선으로 강조
-        fig.add_trace(go.Scattermap(
+        fig.add_trace(go.Scattermapbox(
             lat=[start_lat, ship_lat], lon=[start_lon, ship_lon],
             mode="lines", line={"width": 5, "color": "#f2c14e"},
             name="이동한 항로", hoverinfo="skip",
         ))
-        fig.add_trace(go.Scattermap(
+        fig.add_trace(go.Scattermapbox(
             lat=[ship_lat], lon=[ship_lon], mode="markers+text",
-            marker={"size": 18, "color": "#ff6b6b", "symbol": "harbor"},
+            marker={"size": 18, "color": "#ff6b6b", "symbol": "circle"},
             text=["🚢 선박"], textposition="bottom right",
             textfont={"color": "#ffffff", "size": 12},
             name="현재 선박 위치",
@@ -316,7 +325,7 @@ def make_route_map():
         ))
     else:
         busan_lat, busan_lon = PORT_COORDS["부산"]
-        fig.add_trace(go.Scattermap(
+        fig.add_trace(go.Scattermapbox(
             lat=[busan_lat], lon=[busan_lon], mode="markers+text",
             marker={"size": 17, "color": "#ff6b6b"},
             text=["🚢 출항 대기"], textposition="bottom right",
@@ -332,7 +341,7 @@ def make_route_map():
     else:
         center_lat, center_lon, zoom = 30, 125, 3
     fig.update_layout(
-        map={"style": "open-street-map", "center": {"lat": center_lat, "lon": center_lon}, "zoom": zoom},
+        mapbox={"style": "open-street-map", "center": {"lat": center_lat, "lon": center_lon}, "zoom": zoom},
         height=480, margin={"l": 0, "r": 0, "t": 10, "b": 0},
         paper_bgcolor="#071521", plot_bgcolor="#071521",
         font={"color": "#f3f0e7"}, legend={"orientation": "h", "y": 0.02},
@@ -445,7 +454,7 @@ for idx, destination in enumerate(DESTINATIONS):
         years = actual_years(destination["name"])
         income = actual_income(destination["name"])
         st.button(
-            f"{destination['name']}\n수익 {income}원 / {years}년",
+            f"{destination['name']}\n수익 {money_label(income)} / {years}년",
             key=f"dest_{destination['name']}", disabled=not can_choose,
             use_container_width=True, on_click=start_voyage, args=(destination["name"],),
         )
