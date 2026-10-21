@@ -1,4 +1,3 @@
-import time
 import random
 from pathlib import Path
 import streamlit as st
@@ -263,13 +262,9 @@ def arrive():
         return
 
     destination = next(item for item in DESTINATIONS if item["name"] == destination_name)
+    # 항만별 실제 요금 감면 조건을 게임에서 판정하지 않으므로, 표시된 게임용 정박비를 적용한다.
     port_fee = int(destination["fee"])
-    # 친환경 선박은 로테르담에서 정박비 50% 할인 (게임용 협약 규칙)
-    if destination_name == "로테르담" and current_emission() <= 30:
-        port_fee = round(port_fee * 0.5)
-        fee_note = "친환경 선박 협약으로 정박비 50% 할인!"
-    else:
-        fee_note = ""
+    fee_note = ""
     st.session_state.money -= port_fee
     st.session_state.port_fee_paid += port_fee
     st.session_state.year = min(st.session_state.year + actual_years(destination_name), END_YEAR)
@@ -602,32 +597,55 @@ if st.session_state.msg:
     st.success(st.session_state.msg)
     st.session_state.msg = ""
 
-st.subheader("실제 지도와 항로")
-st.caption("실제 지리 좌표와 OpenStreetMap 지도를 사용합니다. 선박은 항해 중 지도 위에서 이동하며, 매번 출항할 때 해상 기상이 무작위로 결정됩니다.")
-map_event = st.plotly_chart(
-    make_route_map(), use_container_width=True, key="live_route_map",
-    on_select="rerun", selection_mode="points",
-)
-# 지도에서 목적지 핀을 선택하면 아래에 해당 항구 정보가 표시된다.
-try:
-    selected_points = map_event.selection.points
-    if selected_points:
-        point = selected_points[-1]
-        point_index = point.get("point_index", point.get("pointIndex"))
-        if point_index is not None and 0 <= int(point_index) < len(["부산"] + [d["name"] for d in DESTINATIONS]):
-            picked = (["부산"] + [d["name"] for d in DESTINATIONS])[int(point_index)]
-            if picked != "부산":
-                st.session_state.selected_port = picked
-except (AttributeError, TypeError, KeyError, ValueError):
-    pass
-if st.session_state.phase in ("sailing", "returning") and st.session_state.weather_note:
-    st.info(f"🌦️ 해상 기상: {st.session_state.weather} — {st.session_state.weather_note}")
-if st.session_state.phase == "sailing":
-    st.write(f"🚢 항해 중 · {st.session_state.dest} 방향 · {st.session_state.pos}/{st.session_state.total}초")
-elif st.session_state.phase == "returning":
-    st.write(f"↩️ 부산으로 귀항 중 · {st.session_state.pos}/{st.session_state.total}초")
-else:
-    st.write("⚓ 부산항 정박 중 — 목적지를 선택해 출항하세요.")
+@st.fragment(run_every="1s")
+def show_live_route_map():
+    """지도와 항해 진행만 독립적으로 갱신해 지도 깜빡임을 줄인다."""
+    # 1초마다 이 영역만 갱신한다. 이벤트가 열려 있으면 선택 전까지 이동하지 않는다.
+    if st.session_state.phase in ("sailing", "returning") and not st.session_state.event_pending:
+        if st.session_state.event_cooldown > 0:
+            st.session_state.event_cooldown -= 1
+        elif random.random() < 0.12:  # 시연 중 사건을 볼 수 있도록 초당 12% 확률
+            trigger_random_event()
+            # 이벤트 선택창은 지도 아래의 일반 화면 영역에 있으므로 전체 화면을 한 번 갱신한다.
+            st.rerun()
+        if not st.session_state.event_pending:
+            st.session_state.pos += 1
+            if st.session_state.pos >= st.session_state.total:
+                if st.session_state.phase == "sailing":
+                    arrive()
+                else:
+                    finish_return()
+                st.rerun()
+
+    st.subheader("실제 지도와 항로")
+    st.caption("실제 지리 좌표와 OpenStreetMap 지도를 사용합니다. 선박은 항해 중 지도 위에서 이동하며, 매번 출항할 때 해상 기상이 무작위로 결정됩니다.")
+    map_event = st.plotly_chart(
+        make_route_map(), use_container_width=True, key="live_route_map",
+        on_select="rerun", selection_mode="points",
+    )
+    # 지도에서 목적지 핀을 선택하면 아래에 해당 항구 정보가 표시된다.
+    try:
+        selected_points = map_event.selection.points
+        if selected_points:
+            point = selected_points[-1]
+            point_index = point.get("point_index", point.get("pointIndex"))
+            if point_index is not None and 0 <= int(point_index) < len(["부산"] + [d["name"] for d in DESTINATIONS]):
+                picked = (["부산"] + [d["name"] for d in DESTINATIONS])[int(point_index)]
+                if picked != "부산":
+                    st.session_state.selected_port = picked
+    except (AttributeError, TypeError, KeyError, ValueError):
+        pass
+    if st.session_state.phase in ("sailing", "returning") and st.session_state.weather_note:
+        st.info(f"🌦️ 해상 기상: {st.session_state.weather} — {st.session_state.weather_note}")
+    if st.session_state.phase == "sailing":
+        st.write(f"🚢 항해 중 · {st.session_state.dest} 방향 · {st.session_state.pos}/{st.session_state.total}초")
+    elif st.session_state.phase == "returning":
+        st.write(f"↩️ 부산으로 귀항 중 · {st.session_state.pos}/{st.session_state.total}초")
+    else:
+        st.write("⚓ 부산항 정박 중 — 목적지를 선택해 출항하세요.")
+
+
+show_live_route_map()
 
 st.subheader("항구 정보")
 selected_port = st.session_state.selected_port
@@ -637,13 +655,13 @@ if selected_port and selected_port in [d["name"] for d in DESTINATIONS]:
     years = actual_years(selected_port)
     income = actual_income(selected_port)
     features = {
-        "도쿄": "가까운 항로라 빠르게 운임을 확보할 수 있습니다.",
-        "상하이": "동아시아 주요 무역항으로, 짧은 항해와 중간 수준의 운임이 특징입니다.",
-        "싱가포르": "동남아시아의 주요 환적항으로, 항해 기간은 길지만 운임이 큽니다.",
-        "로테르담": "유럽의 대형 항만으로, 긴 항해와 높은 운임을 제공합니다. 게임에서는 배출량 30% 이하일 때 친환경 정박비 할인을 적용합니다.",
-        "타이베이": "대만 북부의 항구로, 비교적 짧은 항해와 중간 수준의 운임을 제공합니다.",
-        "홍콩": "아시아의 주요 항만으로, 물류 수요가 많고 정박비가 다소 높습니다.",
-        "로스앤젤레스": "북미 서해안의 주요 항만으로, 긴 항해와 높은 운송 보상을 제공합니다.",
+        "도쿄": "일본의 주요 항만입니다. 이 게임에서 운임과 정박비는 실제 항만 요금이 아닌 게임 밸런스용 수치입니다.",
+        "상하이": "중국의 주요 국제 무역항입니다. 이 게임에서 운임과 정박비는 실제 항만 요금이 아닌 게임 밸런스용 수치입니다.",
+        "싱가포르": "세계적인 환적항입니다. 실제로 선박의 연료·기술 및 체류 조건 등에 따른 항만 요금 감면 제도가 있지만, 게임에서는 해당 조건을 따로 판정하지 않습니다.",
+        "로테르담": "유럽의 주요 항만입니다. 실제로 ESI 점수나 Green Award 인증 등을 활용한 항만 요금 할인 제도가 있지만, 게임에서는 인증·점수 조건을 구현하지 않아 별도 할인은 적용하지 않습니다.",
+        "타이베이": "대만 북부의 주요 항만입니다. 이 게임에서 운임과 정박비는 실제 항만 요금이 아닌 게임 밸런스용 수치입니다.",
+        "홍콩": "아시아의 주요 항만이자 환적 거점입니다. 이 게임에서 운임과 정박비는 실제 항만 요금이 아닌 게임 밸런스용 수치입니다.",
+        "로스앤젤레스": "미국 서해안의 주요 항만입니다. 실제로 환경 선박 지수(ESI) 인센티브와 선박 속도 저감 프로그램을 운영하지만, 게임에서는 별도 할인이나 보상을 적용하지 않습니다.",
     }
     st.markdown(f"### 📍 {selected_port} 항구")
     info_cols = st.columns(3)
@@ -651,7 +669,14 @@ if selected_port and selected_port in [d["name"] for d in DESTINATIONS]:
     info_cols[1].metric("예상 운임", money_label(income))
     info_cols[2].metric("해외 정박비", money_label(destination["fee"]))
     st.write(features[selected_port])
-    st.caption(f"부산항 정박비 {money_label(1 * MONEY_SCALE)} · 운임은 부산으로 돌아온 뒤 지급됩니다.")
+    official_sources = {
+        "싱가포르": "https://www.mpa.gov.sg/finance-e-services/tariff-fees-and-charges/ocean-going-vessels/port-dues-concessions",
+        "로테르담": "https://www.portofrotterdam.com/en/sea-shipping/seaport-dues/green-award-discount",
+        "로스앤젤레스": "https://portoflosangeles.org/environment/air-quality/environmental-ship-index",
+    }
+    if selected_port in official_sources:
+        st.markdown(f"[항만 공식 출처 보기]({official_sources[selected_port]})")
+    st.caption(f"부산항 정박비 {money_label(1 * MONEY_SCALE)} · 운임은 부산으로 돌아온 뒤 지급됩니다. 표시된 운임·정박비는 실제 요금이 아닌 게임용 수치입니다.")
     if st.button(f"🚢 {selected_port}로 출항", key="selected_port_depart", disabled=not can_choose, use_container_width=True):
         start_voyage(selected_port)
         st.rerun()
@@ -728,18 +753,3 @@ if st.session_state.event_pending and st.session_state.phase in ("sailing", "ret
             event_cols[i].button(choice["label"], key=f"event_choice_{event['title']}_{i}",
                                   use_container_width=True, on_click=resolve_event, args=(i,))
 
-# 화면을 모두 그린 뒤 1초에 한 칸씩 이동한다. 이벤트가 열려 있으면 선택할 때까지 멈춘다.
-if st.session_state.phase in ("sailing", "returning") and not st.session_state.event_pending:
-    time.sleep(1)
-    if st.session_state.event_cooldown > 0:
-        st.session_state.event_cooldown -= 1
-    elif random.random() < 0.12:  # 시연 중 사건을 볼 수 있도록 초당 12% 확률
-        trigger_random_event()
-    if not st.session_state.event_pending:
-        st.session_state.pos += 1
-        if st.session_state.pos >= st.session_state.total:
-            if st.session_state.phase == "sailing":
-                arrive()
-            else:
-                finish_return()
-    st.rerun()
