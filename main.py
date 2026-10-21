@@ -440,8 +440,8 @@ def route_position(route, fraction):
     return route[-1]
 
 
-def make_route_map():
-    """OpenStreetMap 위에 항구 핀과 바닷길을 표시한다."""
+def _build_route_map():
+    """항구·항로가 바뀔 때 사용하는 지도 기본 도형을 만든다."""
     fig = go.Figure()
     # 부산은 출발항, 나머지는 클릭해서 고를 수 있는 목적지 핀
     destination_names = [d["name"] for d in DESTINATIONS]
@@ -510,6 +510,60 @@ def make_route_map():
         paper_bgcolor="#071521", plot_bgcolor="#071521",
         font={"color": "#f3f0e7"}, legend={"orientation": "h", "y": 0.02},
     )
+    return fig
+
+
+def make_route_map():
+    """지도 도형은 유지하고, 항해 중에는 이동 경로와 선박 좌표만 갱신한다."""
+    dest_name = st.session_state.dest if st.session_state.dest in SEA_ROUTES else None
+    cache_key = "_route_map_cached_destination"
+    figure_key = "_route_map_cached_figure"
+
+    # 항구/항로가 바뀐 경우에만 지도 전체를 새로 만든다.
+    if (figure_key not in st.session_state
+            or st.session_state.get(cache_key) != dest_name):
+        st.session_state[figure_key] = _build_route_map()
+        st.session_state[cache_key] = dest_name
+        return st.session_state[figure_key]
+
+    fig = st.session_state[figure_key]
+    if dest_name is None or len(fig.data) < 4:
+        return fig
+
+    # 기존 지도·항구 핀·전체 항로는 건드리지 않고, 이동한 항로와 선박 마커만 수정한다.
+    route = SEA_ROUTES[dest_name]
+    total = max(1, int(st.session_state.total))
+    fraction = min(1.0, max(0.0, st.session_state.pos / total))
+    if st.session_state.phase == "returning":
+        fraction = 1.0 - fraction
+    ship_lat, ship_lon = route_position(route, fraction)
+
+    lengths = [
+        (((b[0] - a[0]) ** 2 + (b[1] - a[1]) ** 2) ** 0.5)
+        for a, b in zip(route, route[1:])
+    ]
+    route_length = sum(lengths) or 1
+    target = fraction * route_length
+    travelled_route = [route[0]]
+    travelled = 0.0
+    for i, seg_len in enumerate(lengths):
+        if travelled + seg_len >= target:
+            part = (target - travelled) / (seg_len or 1)
+            a, b = route[i], route[i + 1]
+            travelled_route.append((
+                a[0] + (b[0] - a[0]) * part,
+                a[1] + (b[1] - a[1]) * part,
+            ))
+            break
+        travelled_route.append(route[i + 1])
+        travelled += seg_len
+
+    # _build_route_map()의 고정 trace 순서: 0=항구, 1=전체 항로,
+    # 2=이동한 항로, 3=선박. 지도 레이아웃과 타일은 유지한다.
+    fig.data[2].lat = [point[0] for point in travelled_route]
+    fig.data[2].lon = [point[1] for point in travelled_route]
+    fig.data[3].lat = [ship_lat]
+    fig.data[3].lon = [ship_lon]
     return fig
 
 
