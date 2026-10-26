@@ -10,7 +10,7 @@ import plotly.graph_objects as go
 START_YEAR = 2026
 END_YEAR = 2050
 MONEY_SCALE = 1_000_000  # 게임 금액 1단위 = 100만 원
-START_MONEY = 30 * MONEY_SCALE  # 시작 자금 3,000만 원
+START_MONEY = 10_000 * MONEY_SCALE  # 테스트용 시작 자금 100억 원
 START_EMISSION = 100
 TURN_YEARS = 1  # 다음 해로 버튼 한 번에 진행할 게임 연수
 
@@ -522,6 +522,27 @@ def start_voyage(destination_name, ship=None):
     set_ship_status(ship, "outbound")
     sync_ship_map_progress(ship)
     st.session_state.msg = f"{ship['name']} 출항! {weather['description']}"
+
+
+def cancel_departure(ship=None):
+    """다음 해로 진행하기 전 출항 준비를 취소하고 목적지 선택 상태로 되돌린다."""
+    ship = ship or selected_ship()
+    if not ship:
+        return
+    if (ship.get("status", ship.get("phase")) == "outbound"
+            and int(ship.get("trip_elapsed", 0)) == 0
+            and ship.get("waiting_for_turn", False)):
+        ship.update({
+            "dest": None, "years_left": 0, "leg_years": 0,
+            "trip_elapsed": 0, "waiting_for_turn": False,
+            "weather": None, "weather_note": "", "voyage_income": 0,
+            "returning_income": 0, "port_fee_paid": 0,
+            "event_cooldown": 0, "voyage_event_count": 0,
+        })
+        set_ship_status(ship, "docked")
+        sync_ship_map_progress(ship)
+        st.session_state.selected_port = None
+        st.session_state.msg = "출항을 취소했습니다. 목적지를 다시 선택할 수 있습니다."
 
 
 def start_auto_voyage(ship=None):
@@ -1317,10 +1338,17 @@ with info_col:
 
     with st.container(border=True):
         st.caption("출발항")
-        st.markdown("### 🔵 부산 신항  ⌄")
+        st.markdown("### 🔵 부산 신항")
         st.caption("KR PUS · 대한민국")
         st.markdown("<div style='height:1px;background:#e5e7eb;margin:12px 0'></div>", unsafe_allow_html=True)
         st.caption("목적항")
+        if can_choose and available_destinations:
+            with st.expander("목적항 선택 / 변경", expanded=not (selected_port and selected_port in available_destinations)):
+                default_index = available_destinations.index(selected_port) if selected_port in available_destinations else 0
+                picked_port = st.selectbox("목적항", available_destinations, index=default_index, key="destination_dropdown")
+                if st.button("목적항 설정", key="destination_dropdown_apply", use_container_width=True):
+                    st.session_state.selected_port = picked_port
+                    st.rerun()
         if selected_port and selected_port in available_destinations:
             destination = next((d for d in DESTINATIONS if d["name"] == selected_port), None)
             if destination is None:
@@ -1370,6 +1398,12 @@ with info_col:
             if st.button(departure_label, key="selected_port_depart", disabled=not can_choose, use_container_width=True, type="primary"):
                 start_voyage(selected_port)
                 st.rerun()
+            if (ship and ship.get("status", ship.get("phase")) == "outbound"
+                    and int(ship.get("trip_elapsed", 0)) == 0
+                    and ship.get("waiting_for_turn", False)):
+                if st.button("↩ 출항 취소 · 목적지 재설정", key="cancel_departure_button", use_container_width=True):
+                    cancel_departure(ship)
+                    st.rerun()
             if active_ships() and can_choose and len(available_destinations) > 1:
                 st.caption("다른 선박이 운항 중이므로 지도는 이동 지도를 유지합니다. 아래에서 이 선박의 목적지를 바꿀 수 있습니다.")
                 alternate_port = st.selectbox("다른 목적지 선택", available_destinations,
@@ -1379,7 +1413,14 @@ with info_col:
                     st.session_state.selected_port = alternate_port
                     st.rerun()
         else:
-            st.info("지도에서 목적지 핀을 선택하거나 아래 목록에서 목적지를 선택하세요.")
+            pending_ship = selected_ship()
+            if (pending_ship and pending_ship.get("status", pending_ship.get("phase")) == "outbound"
+                    and int(pending_ship.get("trip_elapsed", 0)) == 0
+                    and pending_ship.get("waiting_for_turn", False)):
+                if st.button("↩ 출항 취소 · 목적지 재설정", key="cancel_departure_button_empty", use_container_width=True):
+                    cancel_departure(pending_ship)
+                    st.rerun()
+            st.info("지도에서 목적지 핀을 선택하거나 목적항 선택 메뉴를 열어 목적지를 설정하세요.")
             if available_destinations:
                 manual_port = st.selectbox("목적항 / 어장 선택", available_destinations, key="manual_destination")
                 if st.button("목적지 정보 보기", key="manual_destination_pick", disabled=not can_choose, use_container_width=True):
