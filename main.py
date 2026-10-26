@@ -1170,15 +1170,25 @@ if travelling_ships:
     # 기존 Leaflet iframe/JS 이동 방식을 유지한다. 출항 직후에는 멈춰 있고, 턴 버튼으로만 애니메이션을 재생한다.
     map_config = {
         "ports": [{"name": name, "lat": coords[0], "lon": coords[1]} for name, coords in PORT_COORDS.items()],
-        "ships": [
-            {"id": ship["id"], "name": ship["name"], "type": ship["type"],
-             "route": SEA_ROUTES.get(ship.get("dest"), [PORT_COORDS["부산"]]),
-             "destination": ship.get("dest"), "phase": ship.get("status", "docked"),
-             "pos": round((max(1, int(ship.get("leg_years", 1))) - max(0, min(max(1, int(ship.get("leg_years", 1))), int(ship.get("years_left", 0))))) * 5),
-             "total": max(1, int(ship.get("leg_years", 1))) * 5,
-             "paused": bool(st.session_state.event_pending or ship.get("waiting_for_turn", False))}
-            for ship in travelling_ships
-        ],
+        "ships": (
+            # 이번 턴의 애니메이션 스냅샷을 그대로 JS에 전달한다.
+            # 여기서 일반 선박 상태로 다시 변환하면 end/turn_step/왕복 항로가 사라져
+            # 기존 Leaflet 애니메이션이 재생되지 않는다.
+            [{"id": ship["id"], "name": ship["name"], "type": ship["type"],
+              "route": ship["route"], "destination": ship.get("destination"),
+              "phase": ship.get("phase", "outbound"), "pos": ship["pos"],
+              "end": ship["end"], "total": ship["total"],
+              "turn_step": ship.get("turn_step", True), "paused": ship.get("paused", False)}
+             for ship in turn_animation_ships]
+            if turn_animation_ships else
+            [{"id": ship["id"], "name": ship["name"], "type": ship["type"],
+              "route": SEA_ROUTES.get(ship.get("dest"), [PORT_COORDS["부산"]]),
+              "destination": ship.get("dest"), "phase": ship.get("status", "docked"),
+              "pos": round((max(1, int(ship.get("leg_years", 1))) - max(0, min(max(1, int(ship.get("leg_years", 1))), int(ship.get("years_left", 0))))) * 5),
+              "total": max(1, int(ship.get("leg_years", 1))) * 5,
+              "paused": bool(st.session_state.event_pending or ship.get("waiting_for_turn", False))}
+             for ship in active_ships()]
+        ),
         "paused": bool(st.session_state.event_pending),
     }
     config_json = json.dumps(map_config, ensure_ascii=False).replace("</", "<\\/")
