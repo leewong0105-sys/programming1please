@@ -1075,14 +1075,6 @@ if next_checkpoint is None:
     st.info("모든 중간 점검을 통과했습니다.")
 else:
     st.markdown(f"**다음 점검: {next_checkpoint}년 (배출량 {CHECKPOINTS[next_checkpoint]}% 이하)**")
-turn_col1, turn_col2 = st.columns([1, 3])
-with turn_col1:
-    st.button("다음 해로 ▶", key="advance_turn_button", type="primary",
-               disabled=(st.session_state.phase == "ended"),
-               use_container_width=True, on_click=advance_turn)
-with turn_col2:
-    st.caption(f"버튼 한 번에 {TURN_YEARS}년 진행합니다. 상점·연구·출항을 고민하는 동안 시간은 흐르지 않습니다.")
-
 if st.session_state.phase == "ended":
     if st.session_state.result == "success":
         st.success("🎉 성공! 탄소중립 목표를 달성했습니다.")
@@ -1161,233 +1153,243 @@ for vessel in st.session_state.fleet:
                         "상태": status_label, "목적지": vessel.get("dest") or "부산", "남은 시간": remaining_label})
 st.dataframe(status_rows, hide_index=True, use_container_width=True)
 
-st.subheader("실제 지도와 항로")
-st.caption("항해 중에는 지도 배경과 항구 핀을 유지하고 선박만 이동합니다. 목적지 선택은 정박 중 지도에서 할 수 있습니다.")
+map_col, info_col = st.columns([2.15, 1], gap="medium")
 
-turn_animation_ships = st.session_state.get("turn_animation_ships", [])
-travelling_ships = turn_animation_ships if turn_animation_ships else active_ships()
-if travelling_ships:
-    # 기존 Leaflet iframe/JS 이동 방식을 유지한다. 출항 직후에는 멈춰 있고, 턴 버튼으로만 애니메이션을 재생한다.
-    map_config = {
-        "ports": [{"name": name, "lat": coords[0], "lon": coords[1]} for name, coords in PORT_COORDS.items()],
-        "ships": (
-            # 이번 턴의 애니메이션 스냅샷을 그대로 JS에 전달한다.
-            # 여기서 일반 선박 상태로 다시 변환하면 end/turn_step/왕복 항로가 사라져
-            # 기존 Leaflet 애니메이션이 재생되지 않는다.
-            [{"id": ship["id"], "name": ship["name"], "type": ship["type"],
-              "route": ship["route"], "destination": ship.get("destination"),
-              "phase": ship.get("phase", "outbound"), "pos": ship["pos"],
-              "end": ship["end"], "total": ship["total"],
-              "turn_step": ship.get("turn_step", True), "paused": ship.get("paused", False)}
-             for ship in turn_animation_ships]
-            if turn_animation_ships else
-            [{"id": ship["id"], "name": ship["name"], "type": ship["type"],
-              "route": SEA_ROUTES.get(ship.get("dest"), [PORT_COORDS["부산"]]),
-              "destination": ship.get("dest"), "phase": ship.get("status", "docked"),
-              "pos": round((max(1, int(ship.get("leg_years", 1))) - max(0, min(max(1, int(ship.get("leg_years", 1))), int(ship.get("years_left", 0))))) * 5),
-              "total": max(1, int(ship.get("leg_years", 1))) * 5,
-              "paused": bool(st.session_state.event_pending or ship.get("waiting_for_turn", False))}
-             for ship in active_ships()]
-        ),
-        "paused": bool(st.session_state.event_pending),
-    }
-    config_json = json.dumps(map_config, ensure_ascii=False).replace("</", "<\\/")
-    map_html = r'''<!doctype html>
-<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-<style>
-html,body{margin:0;padding:0;background:#071521;font-family:sans-serif}#map{height:600px;width:100%;border-radius:10px;overflow:hidden}
-.ship-icon{font-size:25px;line-height:32px;text-align:center;width:34px;height:34px;filter:drop-shadow(0 1px 2px #000)}
-.leaflet-tooltip.port-label{background:rgba(7,21,33,.94);color:#fff;border:1px solid #678091;box-shadow:none;font-weight:600}.leaflet-tooltip.port-label:before{display:none}
-.leaflet-control-attribution{font-size:9px!important}
-</style></head><body><div id="map" aria-label="선박 항로 지도"></div>
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><script>
-(function(){
- const C=__CONFIG__;
- const map=L.map('map',{zoomControl:true,preferCanvas:true}).setView([30,125],3);
- L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:18,attribution:'&copy; OpenStreetMap'}).addTo(map);
- const portsLayer=L.layerGroup().addTo(map);
- (C.ports||[]).forEach(p=>{
-   const b=p.name==='부산';
-   L.circleMarker([p.lat,p.lon],{radius:b?8:7,color:b?'#ff6b6b':'#b68d30',weight:2,fillColor:b?'#ff6b6b':'#f2c14e',fillOpacity:.95}).addTo(portsLayer)
-    .bindTooltip((b?'⚓ ':'📍 ')+p.name,{permanent:true,direction:'top',className:'port-label',offset:[0,-5]});
- });
- const shipIcon=L.divIcon({className:'ship-icon-wrap',html:'<div class="ship-icon">🚢</div>',iconSize:[34,34],iconAnchor:[17,17]});
- const moving=[];
- function pointAt(route,f){
-   if(!route||route.length<2)return (route&&route[0])||[35.1796,129.0756];
-   const lens=[];let sum=0;for(let i=0;i<route.length-1;i++){const d=Math.hypot(route[i+1][0]-route[i][0],route[i+1][1]-route[i][1]);lens.push(d);sum+=d;}
-   let target=Math.max(0,Math.min(1,f))*sum;
-   for(let i=0;i<lens.length;i++){if(target<=lens[i]||i===lens.length-1){const t=lens[i]?target/lens[i]:0;return [route[i][0]+(route[i+1][0]-route[i][0])*t,route[i][1]+(route[i+1][1]-route[i][1])*t];}target-=lens[i];}
-   return route[route.length-1];
- }
- function partialPath(route,progress,returning){
-   if(!route||route.length<2)return route||[];
-   const f=returning?1-progress:progress;const p=pointAt(route,f);const out=[route[0]];
-   const lens=[];let sum=0;for(let i=0;i<route.length-1;i++){const d=Math.hypot(route[i+1][0]-route[i][0],route[i+1][1]-route[i][1]);lens.push(d);sum+=d;}
-   let target=f*sum, travelled=0;
-   for(let i=0;i<lens.length;i++){if(target<=travelled+lens[i]){out.push(p);break;}out.push(route[i+1]);travelled+=lens[i];}
-   if(returning){const back=[p];let accumulated=0;for(let i=route.length-2;i>=0;i--){accumulated+=lens[i];if(accumulated<=(1-f)*sum)back.push(route[i]);}return back;}
-   return out;
- }
- (C.ships||[]).forEach((S,index)=>{
-   const route=S.route||[[35.1796,129.0756]];
-   if(route.length>1)L.polyline(route,{color:['#42c7d9','#a78bfa','#fb923c','#34d399','#f472b6'][index%5],weight:3,opacity:.9}).addTo(map);
-   const travelled=L.polyline([],{color:'#f2c14e',weight:4,opacity:.95}).addTo(map);
-   const ship=L.marker(route[0]||[35.1796,129.0756],{icon:shipIcon,interactive:false,zIndexOffset:1000+index}).addTo(map);
-   ship.bindTooltip(S.name+' · '+S.type,{permanent:true,direction:'top',offset:[0,-15]});
-   moving.push({S,route,ship,travelled,
-     base:Math.max(0,Math.min(Math.max(1,Number(S.total)||1),Number(S.pos)||0)),
-     end:Math.max(0,Math.min(Math.max(1,Number(S.total)||1),Number(S.end ?? S.total)||0)),
-     total:Math.max(1,Number(S.total)||1),started:performance.now(),
-     turnStep:!!S.turn_step,paused:!!C.paused||!!S.paused});
- });
- const allPoints=[];(C.ships||[]).forEach(S=>(S.route||[]).forEach(p=>allPoints.push(p)));
- if(allPoints.length>1)map.fitBounds(L.latLngBounds(allPoints),{padding:[35,35],maxZoom:5,animate:false});
- function tick(now){
-   let again=false;
-   moving.forEach(M=>{
-     let progress=M.base/M.total;
-     if(!M.paused){
-       if(M.turnStep){
-         // 다음 해로 클릭 한 번당 정확히 5초 동안 해당 1년 구간만 이동한다.
-         const start=M.base/M.total, end=M.end/M.total;
-         const t=Math.min(1,Math.max(0,(now-M.started)/5000));
-         progress=start+(end-start)*t;
-       }else{
-         progress=Math.min(1,(M.base+(now-M.started)/1000)/M.total);
-       }
+with map_col:
+    st.subheader("실제 지도와 항로")
+    st.caption("항해 중에는 지도 배경과 항구 핀을 유지하고 선박만 이동합니다. 목적지 선택은 정박 중 지도에서 할 수 있습니다.")
+
+    turn_animation_ships = st.session_state.get("turn_animation_ships", [])
+    travelling_ships = turn_animation_ships if turn_animation_ships else active_ships()
+    if travelling_ships:
+        # 기존 Leaflet iframe/JS 이동 방식을 유지한다. 출항 직후에는 멈춰 있고, 턴 버튼으로만 애니메이션을 재생한다.
+        map_config = {
+            "ports": [{"name": name, "lat": coords[0], "lon": coords[1]} for name, coords in PORT_COORDS.items()],
+            "ships": (
+                # 이번 턴의 애니메이션 스냅샷을 그대로 JS에 전달한다.
+                # 여기서 일반 선박 상태로 다시 변환하면 end/turn_step/왕복 항로가 사라져
+                # 기존 Leaflet 애니메이션이 재생되지 않는다.
+                [{"id": ship["id"], "name": ship["name"], "type": ship["type"],
+                  "route": ship["route"], "destination": ship.get("destination"),
+                  "phase": ship.get("phase", "outbound"), "pos": ship["pos"],
+                  "end": ship["end"], "total": ship["total"],
+                  "turn_step": ship.get("turn_step", True), "paused": ship.get("paused", False)}
+                 for ship in turn_animation_ships]
+                if turn_animation_ships else
+                [{"id": ship["id"], "name": ship["name"], "type": ship["type"],
+                  "route": SEA_ROUTES.get(ship.get("dest"), [PORT_COORDS["부산"]]),
+                  "destination": ship.get("dest"), "phase": ship.get("status", "docked"),
+                  "pos": round((max(1, int(ship.get("leg_years", 1))) - max(0, min(max(1, int(ship.get("leg_years", 1))), int(ship.get("years_left", 0))))) * 5),
+                  "total": max(1, int(ship.get("leg_years", 1))) * 5,
+                  "paused": bool(st.session_state.event_pending or ship.get("waiting_for_turn", False))}
+                 for ship in active_ships()]
+            ),
+            "paused": bool(st.session_state.event_pending),
+        }
+        config_json = json.dumps(map_config, ensure_ascii=False).replace("</", "<\\/")
+        map_html = r'''<!doctype html>
+    <html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+    <style>
+    html,body{margin:0;padding:0;background:#071521;font-family:sans-serif}#map{height:430px;width:100%;border-radius:10px;overflow:hidden}
+    .ship-icon{font-size:25px;line-height:32px;text-align:center;width:34px;height:34px;filter:drop-shadow(0 1px 2px #000)}
+    .leaflet-tooltip.port-label{background:rgba(7,21,33,.94);color:#fff;border:1px solid #678091;box-shadow:none;font-weight:600}.leaflet-tooltip.port-label:before{display:none}
+    .leaflet-control-attribution{font-size:9px!important}
+    </style></head><body><div id="map" aria-label="선박 항로 지도"></div>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><script>
+    (function(){
+     const C=__CONFIG__;
+     const map=L.map('map',{zoomControl:true,preferCanvas:true}).setView([30,125],3);
+     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:18,attribution:'&copy; OpenStreetMap'}).addTo(map);
+     const portsLayer=L.layerGroup().addTo(map);
+     (C.ports||[]).forEach(p=>{
+       const b=p.name==='부산';
+       L.circleMarker([p.lat,p.lon],{radius:b?8:7,color:b?'#ff6b6b':'#b68d30',weight:2,fillColor:b?'#ff6b6b':'#f2c14e',fillOpacity:.95}).addTo(portsLayer)
+        .bindTooltip((b?'⚓ ':'📍 ')+p.name,{permanent:true,direction:'top',className:'port-label',offset:[0,-5]});
+     });
+     const shipIcon=L.divIcon({className:'ship-icon-wrap',html:'<div class="ship-icon">🚢</div>',iconSize:[34,34],iconAnchor:[17,17]});
+     const moving=[];
+     function pointAt(route,f){
+       if(!route||route.length<2)return (route&&route[0])||[35.1796,129.0756];
+       const lens=[];let sum=0;for(let i=0;i<route.length-1;i++){const d=Math.hypot(route[i+1][0]-route[i][0],route[i+1][1]-route[i][1]);lens.push(d);sum+=d;}
+       let target=Math.max(0,Math.min(1,f))*sum;
+       for(let i=0;i<lens.length;i++){if(target<=lens[i]||i===lens.length-1){const t=lens[i]?target/lens[i]:0;return [route[i][0]+(route[i+1][0]-route[i][0])*t,route[i][1]+(route[i+1][1]-route[i][1])*t];}target-=lens[i];}
+       return route[route.length-1];
      }
-     const f=M.S.phase==='returning'?1-progress:progress;
-     M.ship.setLatLng(pointAt(M.route,f));
-     M.travelled.setLatLngs(partialPath(M.route,progress,M.S.phase==='returning'));
-     if(!M.paused&&(M.turnStep?progress<(M.end/M.total):progress<1))again=true;
-   });
-   if(again)requestAnimationFrame(tick);
- }
- tick(performance.now());
- setTimeout(()=>map.invalidateSize(),80);
-})();
-</script></body></html>'''.replace("__CONFIG__", config_json)
-    components.html(map_html, height=620, scrolling=False)
-    if turn_animation_ships:
-        st.session_state.turn_animation_ships = []
-        # 이번 턴 애니메이션이 끝난 뒤에는 다음 해로를 누를 때까지 정지한다.
-        for vessel in st.session_state.fleet:
-            if vessel.get("status") in ("outbound", "returning"):
-                vessel["waiting_for_turn"] = True
-else:
-    # 정박 중에는 기존 Plotly 지도를 사용해 핀 클릭으로 목적지를 고르는 기능을 유지한다.
-    map_event = st.plotly_chart(
-        make_route_map(), use_container_width=True, key="live_route_map",
-        on_select="rerun", selection_mode="points",
-    )
-    try:
-        selected_points = map_event.selection.points
-        if selected_points:
-            point = selected_points[-1]
-            point_index = point.get("point_index", point.get("pointIndex"))
-            port_names = ["부산"] + [d["name"] for d in DESTINATIONS]
-            if point_index is not None and 0 <= int(point_index) < len(port_names):
-                picked = port_names[int(point_index)]
-                st.session_state.selected_port = None if picked == "부산" else picked
-    except (AttributeError, TypeError, KeyError, ValueError):
-        pass
-
-current_ship = selected_ship()
-if current_ship and current_ship.get("status", current_ship.get("phase")) in ("outbound", "returning") and current_ship.get("weather_note"):
-    st.info(f"🌦️ {current_ship['name']} 기상: {current_ship['weather']} — {current_ship['weather_note']}")
-if current_ship and current_ship.get("status", current_ship.get("phase")) == "outbound":
-    st.write(f"🚢 {current_ship['name']} 항해 중 · {current_ship.get('dest')} 방향 · 남은 {current_ship.get('years_left', 0)}년 / 총 {current_ship.get('leg_years', 0)}년")
-elif current_ship and current_ship.get("status", current_ship.get("phase")) == "returning":
-    st.write(f"↩️ {current_ship['name']} 부산으로 귀항 중 · 남은 {current_ship.get('years_left', 0)}년 / 총 {current_ship.get('leg_years', 0)}년")
-else:
-    st.write("⚓ 선택한 선박은 부산항 정박 중 — 목적지를 선택해 출항하세요.")
-
-
-st.subheader("항구 정보")
-selected_port = st.session_state.selected_port
-can_choose = bool(current_ship and current_ship.get("status", ship.get("phase", "docked")) == "docked" and st.session_state.phase != "ended")
-ship = selected_ship()
-ship_type = ship["type"] if ship else "기본 화물선"
-available_special_ports = [
-    name for name in st.session_state.unlocked_special_ports
-    if name in SPECIAL_PORTS and ship_type in SPECIAL_PORTS[name]["ship_types"]
-]
-available_destinations = [d["name"] for d in DESTINATIONS]
-if ship_type in ("LNG선", "탱크선", "케미컬 탱커"):
-    available_destinations += available_special_ports
-if ship_type == "어선":
-    available_destinations = list(FISHING_GROUNDS)
-if selected_port and selected_port in available_destinations:
-    destination = next((d for d in DESTINATIONS if d["name"] == selected_port), None)
-    if destination is None:
-        destination = SPECIAL_PORTS.get(selected_port) or FISHING_GROUNDS.get(selected_port)
-    years = actual_years(selected_port)
-    income = actual_income(selected_port)
-    features = {
-        "도쿄": "일본의 주요 국제 무역항입니다.",
-        "상하이": "중국의 주요 국제 무역항이자 대형 컨테이너 항만입니다.",
-        "싱가포르": "MPA Green Ship Programme은 요건을 충족하고 사전 등록한 선박에 연료·기술 조건에 따라 항만 요금 감면을 제공합니다. 게임에서는 기존 엔진 업그레이드를 자격의 단순화된 대리 기준으로 사용합니다.",
-        "로테르담": "항만은 Green Award 및 환경 데이터·선박별 조건에 따른 인센티브를 운영합니다. 실제 해상 운항 선박의 할인은 선종과 요금 구성요소 등 별도 자격이 필요하므로, 게임은 친환경 설비와 배출량을 이용한 단순화 규칙을 사용합니다.",
-        "타이베이": "대만 북부의 주요 항만입니다.",
-        "홍콩": "아시아의 주요 항만이자 환적 거점입니다.",
-        "로스앤젤레스": "Port of Los Angeles의 ESI 프로그램은 등록된 선박의 ESI 점수 구간에 따라 입항별 인센티브를 제공합니다. 게임은 실제 ESI 점수를 계산하지 않고 배출량을 시연용 대체 기준으로 사용합니다.",
-    }
-    if selected_port in [d["name"] for d in DESTINATIONS]:
-        current_fee, current_benefit = discounted_port_fee(selected_port)
+     function partialPath(route,progress,returning){
+       if(!route||route.length<2)return route||[];
+       const f=returning?1-progress:progress;const p=pointAt(route,f);const out=[route[0]];
+       const lens=[];let sum=0;for(let i=0;i<route.length-1;i++){const d=Math.hypot(route[i+1][0]-route[i][0],route[i+1][1]-route[i][1]);lens.push(d);sum+=d;}
+       let target=f*sum, travelled=0;
+       for(let i=0;i<lens.length;i++){if(target<=travelled+lens[i]){out.push(p);break;}out.push(route[i+1]);travelled+=lens[i];}
+       if(returning){const back=[p];let accumulated=0;for(let i=route.length-2;i>=0;i--){accumulated+=lens[i];if(accumulated<=(1-f)*sum)back.push(route[i]);}return back;}
+       return out;
+     }
+     (C.ships||[]).forEach((S,index)=>{
+       const route=S.route||[[35.1796,129.0756]];
+       if(route.length>1)L.polyline(route,{color:['#42c7d9','#a78bfa','#fb923c','#34d399','#f472b6'][index%5],weight:3,opacity:.9}).addTo(map);
+       const travelled=L.polyline([],{color:'#f2c14e',weight:4,opacity:.95}).addTo(map);
+       const ship=L.marker(route[0]||[35.1796,129.0756],{icon:shipIcon,interactive:false,zIndexOffset:1000+index}).addTo(map);
+       ship.bindTooltip(S.name+' · '+S.type,{permanent:true,direction:'top',offset:[0,-15]});
+       moving.push({S,route,ship,travelled,
+         base:Math.max(0,Math.min(Math.max(1,Number(S.total)||1),Number(S.pos)||0)),
+         end:Math.max(0,Math.min(Math.max(1,Number(S.total)||1),Number(S.end ?? S.total)||0)),
+         total:Math.max(1,Number(S.total)||1),started:performance.now(),
+         turnStep:!!S.turn_step,paused:!!C.paused||!!S.paused});
+     });
+     const allPoints=[];(C.ships||[]).forEach(S=>(S.route||[]).forEach(p=>allPoints.push(p)));
+     if(allPoints.length>1)map.fitBounds(L.latLngBounds(allPoints),{padding:[35,35],maxZoom:5,animate:false});
+     function tick(now){
+       let again=false;
+       moving.forEach(M=>{
+         let progress=M.base/M.total;
+         if(!M.paused){
+           if(M.turnStep){
+             // 다음 해로 클릭 한 번당 정확히 5초 동안 해당 1년 구간만 이동한다.
+             const start=M.base/M.total, end=M.end/M.total;
+             const t=Math.min(1,Math.max(0,(now-M.started)/5000));
+             progress=start+(end-start)*t;
+           }else{
+             progress=Math.min(1,(M.base+(now-M.started)/1000)/M.total);
+           }
+         }
+         const f=M.S.phase==='returning'?1-progress:progress;
+         M.ship.setLatLng(pointAt(M.route,f));
+         M.travelled.setLatLngs(partialPath(M.route,progress,M.S.phase==='returning'));
+         if(!M.paused&&(M.turnStep?progress<(M.end/M.total):progress<1))again=true;
+       });
+       if(again)requestAnimationFrame(tick);
+     }
+     tick(performance.now());
+     setTimeout(()=>map.invalidateSize(),80);
+    })();
+    </script></body></html>'''.replace("__CONFIG__", config_json)
+        components.html(map_html, height=450, scrolling=False)
+        if turn_animation_ships:
+            st.session_state.turn_animation_ships = []
+            # 이번 턴 애니메이션이 끝난 뒤에는 다음 해로를 누를 때까지 정지한다.
+            for vessel in st.session_state.fleet:
+                if vessel.get("status") in ("outbound", "returning"):
+                    vessel["waiting_for_turn"] = True
     else:
-        current_fee = int(destination.get("fee", 0))
-        current_benefit = {"discount_percent": 0, "arrival_bonus": 0, "note": destination.get("description", "게임용 목적지")}
-    suffix = " 어장" if selected_port in FISHING_GROUNDS else " 항구"
-    st.markdown(f"### 📍 {selected_port}{suffix}")
-    info_cols = st.columns(3)
-    info_cols[0].metric("예상 항해 기간", f"{years}년")
-    info_cols[1].metric("예상 운임", money_label(income))
-    info_cols[2].metric("적용 정박비", money_label(current_fee),
-                        delta=(f"{current_benefit['discount_percent']}% 감면" if current_benefit["discount_percent"] else None),
-                        delta_color="normal")
-    st.write(features.get(selected_port, destination.get("description", "게임용 목적지입니다.")))
-    st.info(f"**게임 내 혜택:** {current_benefit['note'] or '현재 적용 가능한 별도 혜택 없음'}")
-    official_sources = {
-        "싱가포르": "https://www.mpa.gov.sg/finance-e-services/tariff-fees-and-charges/ocean-going-vessels/port-dues-concessions",
-        "로테르담": "https://www.portofrotterdam.com/en/sea-shipping/seaport-dues/green-award-discount",
-        "로스앤젤레스": "https://portoflosangeles.org/environment/air-quality/environmental-ship-index",
-    }
-    if selected_port in official_sources:
-        st.markdown(f"[항만 공식 출처 보기]({official_sources[selected_port]})")
-    st.caption(f"기본 게임 정박비 {money_label(destination['fee'])} · 혜택 적용 후 정박비 {money_label(current_fee)}. 부산항 정박비 {money_label(1 * MONEY_SCALE)}는 별도이며 운임은 부산 귀항 후 지급됩니다. 실제 항만 요금과 자격 조건을 그대로 계산하는 시스템이 아니라, 공식 제도를 참고해 단순화한 게임 규칙입니다.")
-    departure_label = f"🎣 {selected_port} 조업 출항" if selected_port in FISHING_GROUNDS else f"🚢 {selected_port}로 출항"
-    if st.button(departure_label, key="selected_port_depart", disabled=not can_choose, use_container_width=True):
-        start_voyage(selected_port)
-        st.rerun()
-    if active_ships() and can_choose and len(available_destinations) > 1:
-        st.caption("다른 선박이 운항 중이므로 지도는 이동 지도를 유지합니다. 아래에서 이 선박의 목적지를 바꿀 수 있습니다.")
-        alternate_port = st.selectbox("다른 목적지 선택", available_destinations,
-                                      index=(available_destinations.index(selected_port) if selected_port in available_destinations else 0),
-                                      key="alternate_destination_while_sailing")
-        if st.button("선택한 목적지 정보 보기", key="alternate_destination_pick", use_container_width=True):
-            st.session_state.selected_port = alternate_port
-            st.rerun()
-else:
-    st.info("지도에서 목적지 핀을 선택하거나 아래 목록에서 현재 선박이 이용할 수 있는 목적지를 선택하세요.")
-    if available_destinations:
-        manual_port = st.selectbox("목적항 / 어장 선택", available_destinations, key="manual_destination")
-        if st.button("목적지 정보 보기", key="manual_destination_pick", disabled=not can_choose, use_container_width=True):
-            st.session_state.selected_port = manual_port
-            st.rerun()
-    else:
-        st.warning("이 선박이 이용할 수 있는 특수 목적지가 없습니다.")
+        # 정박 중에는 기존 Plotly 지도를 사용해 핀 클릭으로 목적지를 고르는 기능을 유지한다.
+        map_event = st.plotly_chart(
+            make_route_map(), use_container_width=True, key="live_route_map",
+            on_select="rerun", selection_mode="points",
+        )
+        try:
+            selected_points = map_event.selection.points
+            if selected_points:
+                point = selected_points[-1]
+                point_index = point.get("point_index", point.get("pointIndex"))
+                port_names = ["부산"] + [d["name"] for d in DESTINATIONS]
+                if point_index is not None and 0 <= int(point_index) < len(port_names):
+                    picked = port_names[int(point_index)]
+                    st.session_state.selected_port = None if picked == "부산" else picked
+        except (AttributeError, TypeError, KeyError, ValueError):
+            pass
 
-if 4 in st.session_state.bought_tr:
-    st.toggle("자동 운항", key="auto_on", disabled=(not current_ship or current_ship.get("status", ship.get("phase", "docked")) != "docked" or st.session_state.phase == "ended"),
-              help="선택한 정박 선박을 자동 항로로 출발시킵니다.")
-    if st.session_state.auto_on:
-        next_auto_dest = AUTO_ROUTE[st.session_state.auto_idx % len(AUTO_ROUTE)]
-        st.caption(f"다음 자동 항로: {next_auto_dest}")
-        st.button("▶ 다음 자동 항해 출발", key="start_auto_voyage",
-                  disabled=(not current_ship or current_ship.get("status", ship.get("phase", "docked")) != "docked" or st.session_state.phase == "ended"), use_container_width=True,
-                  on_click=start_auto_voyage)
+
+    st.button("다음 해로 ▶", key="advance_turn_button", type="primary",
+               disabled=(st.session_state.phase == "ended"),
+               use_container_width=True, on_click=advance_turn)
+    st.caption(f"버튼 한 번에 {TURN_YEARS}년 진행합니다. 항해 준비 중에는 시간이 흐르지 않습니다.")
+
+with info_col:
+    current_ship = selected_ship()
+    if current_ship and current_ship.get("status", current_ship.get("phase")) in ("outbound", "returning") and current_ship.get("weather_note"):
+        st.info(f"🌦️ {current_ship['name']} 기상: {current_ship['weather']} — {current_ship['weather_note']}")
+    if current_ship and current_ship.get("status", current_ship.get("phase")) == "outbound":
+        st.write(f"🚢 {current_ship['name']} 항해 중 · {current_ship.get('dest')} 방향 · 남은 {current_ship.get('years_left', 0)}년 / 총 {current_ship.get('leg_years', 0)}년")
+    elif current_ship and current_ship.get("status", current_ship.get("phase")) == "returning":
+        st.write(f"↩️ {current_ship['name']} 부산으로 귀항 중 · 남은 {current_ship.get('years_left', 0)}년 / 총 {current_ship.get('leg_years', 0)}년")
+    else:
+        st.write("⚓ 선택한 선박은 부산항 정박 중 — 목적지를 선택해 출항하세요.")
+
+
+    st.subheader("항구 정보")
+    selected_port = st.session_state.selected_port
+    can_choose = bool(current_ship and current_ship.get("status", ship.get("phase", "docked")) == "docked" and st.session_state.phase != "ended")
+    ship = selected_ship()
+    ship_type = ship["type"] if ship else "기본 화물선"
+    available_special_ports = [
+        name for name in st.session_state.unlocked_special_ports
+        if name in SPECIAL_PORTS and ship_type in SPECIAL_PORTS[name]["ship_types"]
+    ]
+    available_destinations = [d["name"] for d in DESTINATIONS]
+    if ship_type in ("LNG선", "탱크선", "케미컬 탱커"):
+        available_destinations += available_special_ports
+    if ship_type == "어선":
+        available_destinations = list(FISHING_GROUNDS)
+    if selected_port and selected_port in available_destinations:
+        destination = next((d for d in DESTINATIONS if d["name"] == selected_port), None)
+        if destination is None:
+            destination = SPECIAL_PORTS.get(selected_port) or FISHING_GROUNDS.get(selected_port)
+        years = actual_years(selected_port)
+        income = actual_income(selected_port)
+        features = {
+            "도쿄": "일본의 주요 국제 무역항입니다.",
+            "상하이": "중국의 주요 국제 무역항이자 대형 컨테이너 항만입니다.",
+            "싱가포르": "MPA Green Ship Programme은 요건을 충족하고 사전 등록한 선박에 연료·기술 조건에 따라 항만 요금 감면을 제공합니다. 게임에서는 기존 엔진 업그레이드를 자격의 단순화된 대리 기준으로 사용합니다.",
+            "로테르담": "항만은 Green Award 및 환경 데이터·선박별 조건에 따른 인센티브를 운영합니다. 실제 해상 운항 선박의 할인은 선종과 요금 구성요소 등 별도 자격이 필요하므로, 게임은 친환경 설비와 배출량을 이용한 단순화 규칙을 사용합니다.",
+            "타이베이": "대만 북부의 주요 항만입니다.",
+            "홍콩": "아시아의 주요 항만이자 환적 거점입니다.",
+            "로스앤젤레스": "Port of Los Angeles의 ESI 프로그램은 등록된 선박의 ESI 점수 구간에 따라 입항별 인센티브를 제공합니다. 게임은 실제 ESI 점수를 계산하지 않고 배출량을 시연용 대체 기준으로 사용합니다.",
+        }
+        if selected_port in [d["name"] for d in DESTINATIONS]:
+            current_fee, current_benefit = discounted_port_fee(selected_port)
+        else:
+            current_fee = int(destination.get("fee", 0))
+            current_benefit = {"discount_percent": 0, "arrival_bonus": 0, "note": destination.get("description", "게임용 목적지")}
+        suffix = " 어장" if selected_port in FISHING_GROUNDS else " 항구"
+        st.markdown(f"### 📍 {selected_port}{suffix}")
+        info_cols = st.columns(3)
+        info_cols[0].metric("예상 항해 기간", f"{years}년")
+        info_cols[1].metric("예상 운임", money_label(income))
+        info_cols[2].metric("적용 정박비", money_label(current_fee),
+                            delta=(f"{current_benefit['discount_percent']}% 감면" if current_benefit["discount_percent"] else None),
+                            delta_color="normal")
+        st.write(features.get(selected_port, destination.get("description", "게임용 목적지입니다.")))
+        st.info(f"**게임 내 혜택:** {current_benefit['note'] or '현재 적용 가능한 별도 혜택 없음'}")
+        official_sources = {
+            "싱가포르": "https://www.mpa.gov.sg/finance-e-services/tariff-fees-and-charges/ocean-going-vessels/port-dues-concessions",
+            "로테르담": "https://www.portofrotterdam.com/en/sea-shipping/seaport-dues/green-award-discount",
+            "로스앤젤레스": "https://portoflosangeles.org/environment/air-quality/environmental-ship-index",
+        }
+        if selected_port in official_sources:
+            st.markdown(f"[항만 공식 출처 보기]({official_sources[selected_port]})")
+        st.caption(f"기본 게임 정박비 {money_label(destination['fee'])} · 혜택 적용 후 정박비 {money_label(current_fee)}. 부산항 정박비 {money_label(1 * MONEY_SCALE)}는 별도이며 운임은 부산 귀항 후 지급됩니다. 실제 항만 요금과 자격 조건을 그대로 계산하는 시스템이 아니라, 공식 제도를 참고해 단순화한 게임 규칙입니다.")
+        departure_label = f"🎣 {selected_port} 조업 출항" if selected_port in FISHING_GROUNDS else f"🚢 {selected_port}로 출항"
+        if st.button(departure_label, key="selected_port_depart", disabled=not can_choose, use_container_width=True):
+            start_voyage(selected_port)
+            st.rerun()
+        if active_ships() and can_choose and len(available_destinations) > 1:
+            st.caption("다른 선박이 운항 중이므로 지도는 이동 지도를 유지합니다. 아래에서 이 선박의 목적지를 바꿀 수 있습니다.")
+            alternate_port = st.selectbox("다른 목적지 선택", available_destinations,
+                                          index=(available_destinations.index(selected_port) if selected_port in available_destinations else 0),
+                                          key="alternate_destination_while_sailing")
+            if st.button("선택한 목적지 정보 보기", key="alternate_destination_pick", use_container_width=True):
+                st.session_state.selected_port = alternate_port
+                st.rerun()
+    else:
+        st.info("지도에서 목적지 핀을 선택하거나 아래 목록에서 현재 선박이 이용할 수 있는 목적지를 선택하세요.")
+        if available_destinations:
+            manual_port = st.selectbox("목적항 / 어장 선택", available_destinations, key="manual_destination")
+            if st.button("목적지 정보 보기", key="manual_destination_pick", disabled=not can_choose, use_container_width=True):
+                st.session_state.selected_port = manual_port
+                st.rerun()
+        else:
+            st.warning("이 선박이 이용할 수 있는 특수 목적지가 없습니다.")
+
+    if 4 in st.session_state.bought_tr:
+        st.toggle("자동 운항", key="auto_on", disabled=(not current_ship or current_ship.get("status", ship.get("phase", "docked")) != "docked" or st.session_state.phase == "ended"),
+                  help="선택한 정박 선박을 자동 항로로 출발시킵니다.")
+        if st.session_state.auto_on:
+            next_auto_dest = AUTO_ROUTE[st.session_state.auto_idx % len(AUTO_ROUTE)]
+            st.caption(f"다음 자동 항로: {next_auto_dest}")
+            st.button("▶ 다음 자동 항해 출발", key="start_auto_voyage",
+                      disabled=(not current_ship or current_ship.get("status", ship.get("phase", "docked")) != "docked" or st.session_state.phase == "ended"), use_container_width=True,
+                      on_click=start_auto_voyage)
 
 if st.session_state.event_log:
     with st.expander("📜 최근 해상 사건 기록"):
