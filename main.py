@@ -479,7 +479,7 @@ def add_history():
 
 
 def start_voyage(destination_name, ship=None):
-    """선택한 선박만 출항시킨다. 회사 전체 시계는 별도 fragment가 관리한다."""
+    """선택한 선박의 목적지만 설정하고 출항 애니메이션을 시작한다. 연도는 진행하지 않는다."""
     ship = ship or selected_ship()
     if not ship or ship.get("status", ship.get("phase", "docked")) != "docked" or st.session_state.phase == "ended":
         return
@@ -1005,31 +1005,39 @@ st.title("관제 센터")
 st.caption("선단 운영 현황을 확인하고, 수익과 탄소 감축 기술을 관리하세요.")
 
 def advance_turn():
-    """게임 시간을 한 턴 진행한다. 연도 변경은 이 함수에서만 수행한다."""
+    """다음 해로 버튼을 눌렀을 때만 정확히 1년 진행하고 선박 상태를 갱신한다."""
     if st.session_state.phase == "ended":
         return
 
     old_year = int(st.session_state.year)
-    st.session_state.year = min(END_YEAR, old_year + max(1, int(TURN_YEARS)))
+    # 한 번 클릭할 때 반드시 1년만 진행한다. 출항 버튼에서는 연도를 변경하지 않는다.
+    st.session_state.year = min(END_YEAR, old_year + 1)
     elapsed_years = st.session_state.year - old_year
+    if elapsed_years <= 0:
+        return
 
-    # 모든 배의 남은 연수를 함께 줄인다. 한 배는 한 턴에 한 단계만 처리한다.
+    # 출항 중인 배는 목적지까지, 귀항 중인 배는 부산까지 1년씩 진행한다.
+    # 목적지 도착과 부산 귀항은 서로 다른 턴에서 처리해 한 번에 두 구간을 건너뛰지 않는다.
     for ship in list(st.session_state.fleet):
         status = ship.get("status", ship.get("phase", "docked"))
         if status not in ("outbound", "returning"):
             continue
-        ship["years_left"] = max(0, int(ship.get("years_left", 0)) - elapsed_years)
-        sync_ship_map_progress(ship)
+
+        ship["years_left"] = max(0, int(ship.get("years_left", 0)) - 1)
         if ship["years_left"] > 0:
+            sync_ship_map_progress(ship)
             continue
+
         if status == "outbound":
+            # 목적지 도착 처리 후 상태가 returning으로 바뀐다.
+            # 귀항 시간은 다음 '다음 해로' 클릭부터 계산한다.
             arrive(ship)
-        elif status == "returning":
+        else:
             settle_return(ship)
 
-    # 선박 처리 이후, 새 연도를 기준으로 회사 공통 점검을 판정한다.
+    # 선박 처리 이후 새 연도를 기준으로 회사 공통 점검을 판정한다.
     check_year_checkpoint()
-    st.rerun()
+    # Streamlit의 on_click 콜백은 종료 후 자동으로 다시 실행되므로 여기서 st.rerun()을 호출하지 않는다.
 
 
 # 턴제에서는 자동 시계를 사용하지 않는다. 버튼을 누르기 전까지 연도와 선박 시간이 멈춰 있다.
