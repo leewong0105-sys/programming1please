@@ -41,6 +41,61 @@ TRANSPORT = [
     {"id": 4, "name": "자율운항선박", "price": 100 * MONEY_SCALE, "effect": "자동 운항 기능 해금"},
 ]
 
+
+# 선종별 추가 구매 비용 및 게임용 특수 목적지
+SHIP_TYPES = {
+    "기본 화물선": {"extra_price": 0, "kind": "일반", "description": "일반 항구 간 기본 화물 운송"},
+    "컨테이너선": {"extra_price": 10 * MONEY_SCALE, "kind": "일반", "description": "컨테이너 화물 운송"},
+    "어선": {"extra_price": 5 * MONEY_SCALE, "kind": "어선", "description": "어장으로 이동해 조업 후 어획물 판매"},
+    "탱크선": {"extra_price": 20 * MONEY_SCALE, "kind": "특수", "description": "액체 화물 운송"},
+    "케미컬 탱커": {"extra_price": 30 * MONEY_SCALE, "kind": "특수", "description": "화학제품 전문 운송"},
+    "LNG선": {"extra_price": 40 * MONEY_SCALE, "kind": "특수", "description": "액화천연가스 운송"},
+}
+SHIP_BASE_PRICE = 15 * MONEY_SCALE
+SHIP_PRICE_STEP = 5 * MONEY_SCALE
+
+RESEARCH_TECHS = [
+    {"id": "ammonia", "name": "암모니아 추진 기술", "stages": [
+        {"price": 10 * MONEY_SCALE, "reduction": 3, "label": "1단계 · 기초 연구"},
+        {"price": 25 * MONEY_SCALE, "reduction": 5, "label": "2단계 · 실증 연구"},
+        {"price": 50 * MONEY_SCALE, "reduction": 7, "label": "3단계 · 상용화 완성"}]},
+    {"id": "methanol", "name": "메탄올 추진 기술", "stages": [
+        {"price": 12 * MONEY_SCALE, "reduction": 3, "label": "1단계 · 기초 연구"},
+        {"price": 28 * MONEY_SCALE, "reduction": 5, "label": "2단계 · 실증 연구"},
+        {"price": 55 * MONEY_SCALE, "reduction": 7, "label": "3단계 · 상용화 완성"}]},
+    {"id": "capture", "name": "선상 탄소 포집 기술", "stages": [
+        {"price": 15 * MONEY_SCALE, "reduction": 2, "label": "1단계 · 원리 연구"},
+        {"price": 35 * MONEY_SCALE, "reduction": 5, "label": "2단계 · 장치 실증"},
+        {"price": 65 * MONEY_SCALE, "reduction": 7, "label": "3단계 · 상용화 완성"}]},
+    {"id": "efficiency", "name": "에너지 효율 개선 기술", "stages": [
+        {"price": 8 * MONEY_SCALE, "reduction": 3, "label": "1단계 · 효율 분석"},
+        {"price": 20 * MONEY_SCALE, "reduction": 5, "label": "2단계 · 시스템 개선"},
+        {"price": 45 * MONEY_SCALE, "reduction": 7, "label": "3단계 · 고효율 완성"}]},
+    {"id": "wind", "name": "풍력 보조 추진 기술", "stages": [
+        {"price": 10 * MONEY_SCALE, "reduction": 3, "label": "1단계 · 풍력 실험"},
+        {"price": 25 * MONEY_SCALE, "reduction": 5, "label": "2단계 · 해상 실증"},
+        {"price": 50 * MONEY_SCALE, "reduction": 7, "label": "3단계 · 상용화 완성"}]},
+    {"id": "shore_power", "name": "육상 전력 공급 기술", "stages": [
+        {"price": 12 * MONEY_SCALE, "reduction": 3, "label": "1단계 · 접속 연구"},
+        {"price": 30 * MONEY_SCALE, "reduction": 5, "label": "2단계 · 항만 실증"},
+        {"price": 55 * MONEY_SCALE, "reduction": 7, "label": "3단계 · 상용화 완성"}]},
+]
+
+SPECIAL_PORTS = {
+    "LNG 터미널": {"ship_types": ["LNG선"], "years": 2, "income": 65 * MONEY_SCALE, "fee": 5 * MONEY_SCALE,
+                    "coords": (1.3, 104.0), "description": "LNG선 전용 터미널(게임용 목적지)"},
+    "화학제품 터미널": {"ship_types": ["케미컬 탱커"], "years": 2, "income": 55 * MONEY_SCALE, "fee": 4 * MONEY_SCALE,
+                         "coords": (22.3, 114.2), "description": "케미컬 탱커 전용 터미널(게임용 목적지)"},
+    "원유 터미널": {"ship_types": ["탱크선"], "years": 2, "income": 60 * MONEY_SCALE, "fee": 4 * MONEY_SCALE,
+                    "coords": (25.0, 55.0), "description": "탱크선 전용 터미널(게임용 목적지)"},
+}
+FISHING_GROUNDS = {
+    "동해 어장": {"years": 1, "income": 22 * MONEY_SCALE, "fee": 1 * MONEY_SCALE, "coords": (38.0, 132.0),
+                  "description": "동해 어장에서 조업 후 귀항해 어획물을 판매합니다."},
+    "북태평양 어장": {"years": 2, "income": 42 * MONEY_SCALE, "fee": 2 * MONEY_SCALE, "coords": (40.0, 155.0),
+                      "description": "먼바다 어장에서 조업하는 장거리 어업입니다."},
+}
+
 CHECKPOINTS = {2030: 80, 2040: 30, 2050: 0}
 AUTO_ROUTE = ["로테르담", "싱가포르", "상하이", "도쿄"]
 
@@ -65,6 +120,11 @@ SEA_ROUTES = {
     "타이베이": [PORT_COORDS["부산"], (32.0, 126.0), (28.0, 124.0), PORT_COORDS["타이베이"]],
     "홍콩": [PORT_COORDS["부산"], (30.0, 125.0), (25.0, 121.0), PORT_COORDS["홍콩"]],
     "로스앤젤레스": [PORT_COORDS["부산"], (30.0, 145.0), (25.0, 170.0), (30.0, -160.0), (33.0, -140.0), (34.0, -120.0), PORT_COORDS["로스앤젤레스"]],
+    "LNG 터미널": [PORT_COORDS["부산"], (30.0, 125.0), (20.0, 118.0), (10.0, 110.0), SPECIAL_PORTS["LNG 터미널"]["coords"]],
+    "화학제품 터미널": [PORT_COORDS["부산"], (30.0, 125.0), (25.0, 121.0), SPECIAL_PORTS["화학제품 터미널"]["coords"]],
+    "원유 터미널": [PORT_COORDS["부산"], (25.0, 125.0), (20.0, 110.0), (15.0, 90.0), SPECIAL_PORTS["원유 터미널"]["coords"]],
+    "동해 어장": [PORT_COORDS["부산"], (37.0, 130.0), FISHING_GROUNDS["동해 어장"]["coords"]],
+    "북태평양 어장": [PORT_COORDS["부산"], (35.0, 140.0), (38.0, 150.0), FISHING_GROUNDS["북태평양 어장"]["coords"]],
 }
 
 
@@ -98,6 +158,13 @@ def init():
         "port_fee_paid": 0,
         "returning_income": 0,
         "event_log": [],
+        "research_levels": {},
+        "fleet": [{"id": 1, "name": "푸른 항해호", "type": "기본 화물선", "price": 0}],
+        "next_ship_id": 2,
+        "selected_ship_id": 1,
+        "company_name": "노스스타 해운",
+        "captain_name": "선장",
+        "unlocked_special_ports": [],
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -133,6 +200,13 @@ def reset_game():
         "port_fee_paid": 0,
         "returning_income": 0,
         "event_log": [],
+        "research_levels": {},
+        "fleet": [{"id": 1, "name": "푸른 항해호", "type": "기본 화물선", "price": 0}],
+        "next_ship_id": 2,
+        "selected_ship_id": 1,
+        "company_name": "노스스타 해운",
+        "captain_name": "선장",
+        "unlocked_special_ports": [],
     }
     for key, value in defaults.items():
         st.session_state[key] = value.copy() if isinstance(value, (list, dict)) else value
@@ -153,8 +227,76 @@ def money_label(amount):
 
 
 def current_emission():
-    reduction = sum(item["reduction"] for item in EQUIPMENT if item["id"] in st.session_state.bought_eq)
+    reduction = 0
+    levels = st.session_state.get("research_levels", {})
+    for tech in RESEARCH_TECHS:
+        level = int(levels.get(tech["id"], 0))
+        reduction += sum(stage["reduction"] for stage in tech["stages"][:level])
+    # 구형 저장 상태와의 호환을 위해 기존 설비 구매 기록도 계산에 포함한다.
+    reduction += sum(item["reduction"] for item in EQUIPMENT if item["id"] in st.session_state.get("bought_eq", []))
     return max(0, START_EMISSION - reduction)
+
+
+def selected_ship():
+    fleet = st.session_state.get("fleet", [])
+    wanted = st.session_state.get("selected_ship_id", 1)
+    return next((ship for ship in fleet if ship["id"] == wanted), fleet[0] if fleet else None)
+
+
+def ship_price(ship_type):
+    count = sum(1 for ship in st.session_state.get("fleet", []) if ship["type"] == ship_type)
+    return SHIP_BASE_PRICE + SHIP_TYPES[ship_type]["extra_price"] + count * SHIP_PRICE_STEP
+
+
+def buy_ship(ship_type, ship_name):
+    ship_name = (ship_name or "").strip()
+    if st.session_state.phase != "docked":
+        return
+    if not ship_name:
+        st.session_state.msg = "선박 이름을 입력해 주세요."
+        return
+    if any(s["name"].casefold() == ship_name.casefold() for s in st.session_state.fleet):
+        st.session_state.msg = "이미 사용 중인 선박 이름입니다."
+        return
+    price = ship_price(ship_type)
+    if st.session_state.money < price:
+        st.session_state.msg = "선박을 구매할 자금이 부족합니다."
+        return
+    ship = {"id": st.session_state.next_ship_id, "name": ship_name, "type": ship_type, "price": price}
+    st.session_state.money -= price
+    st.session_state.fleet.append(ship)
+    st.session_state.next_ship_id += 1
+    st.session_state.selected_ship_id = ship["id"]
+    if ship_type in ("LNG선", "탱크선", "케미컬 탱커"):
+        st.session_state.unlocked_special_ports = sorted(set(
+            st.session_state.unlocked_special_ports +
+            [name for name, data in SPECIAL_PORTS.items() if ship_type in data["ship_types"]]
+        ))
+    st.session_state.msg = f"{ship_name} 구매 완료! ({ship_type})"
+    add_history()
+
+
+def research_next_stage(tech_id):
+    if st.session_state.phase != "docked":
+        return
+    tech = next((t for t in RESEARCH_TECHS if t["id"] == tech_id), None)
+    if tech is None:
+        return
+    level = int(st.session_state.research_levels.get(tech_id, 0))
+    if level >= len(tech["stages"]):
+        return
+    stage = tech["stages"][level]
+    if st.session_state.money < stage["price"]:
+        st.session_state.msg = "연구비가 부족합니다."
+        return
+    st.session_state.money -= stage["price"]
+    st.session_state.research_levels[tech_id] = level + 1
+    st.session_state.msg = f"{tech['name']} {level + 1}단계 연구 완료! 회사 전체 배출량 -{stage['reduction']}%p"
+    add_history()
+    if current_emission() == 0:
+        st.session_state.phase = "ended"
+        st.session_state.result = "success"
+        st.session_state.msg = "회사 전체 배출량 0% 달성! 탄소중립 성공!"
 
 
 def income_multiplier():
@@ -167,12 +309,20 @@ def income_multiplier():
 
 
 def actual_income(destination_name):
-    destination = next(item for item in DESTINATIONS if item["name"] == destination_name)
+    destination = next((item for item in DESTINATIONS if item["name"] == destination_name), None)
+    if destination is None:
+        destination = SPECIAL_PORTS.get(destination_name) or FISHING_GROUNDS.get(destination_name)
+    if destination is None:
+        return 0
     return round(destination["income"] * income_multiplier())
 
 
 def actual_years(destination_name):
-    destination = next(item for item in DESTINATIONS if item["name"] == destination_name)
+    destination = next((item for item in DESTINATIONS if item["name"] == destination_name), None)
+    if destination is None:
+        destination = SPECIAL_PORTS.get(destination_name) or FISHING_GROUNDS.get(destination_name)
+    if destination is None:
+        return 1
     reduction = 1 if 3 in st.session_state.bought_tr else 0
     return max(1, destination["years"] - reduction)
 
@@ -309,9 +459,18 @@ def arrive():
         st.session_state.phase = "docked"
         return
 
-    destination = next(item for item in DESTINATIONS if item["name"] == destination_name)
+    destination = next((item for item in DESTINATIONS if item["name"] == destination_name), None)
+    if destination is None:
+        destination = SPECIAL_PORTS.get(destination_name) or FISHING_GROUNDS.get(destination_name)
+    if destination is None:
+        st.session_state.phase = "docked"
+        return
     # 항만 혜택을 실제 게임 자금 계산에 반영한다. 요금·보상은 게임용 단순화 수치다.
-    port_fee, benefit = discounted_port_fee(destination_name)
+    if destination_name in [d["name"] for d in DESTINATIONS]:
+        port_fee, benefit = discounted_port_fee(destination_name)
+    else:
+        port_fee = int(destination.get("fee", 0))
+        benefit = {"discount_percent": 0, "arrival_bonus": 0, "note": destination.get("description", "게임용 목적지")}
     fee_note = benefit["note"]
     st.session_state.money -= port_fee
     st.session_state.port_fee_paid += port_fee
@@ -570,12 +729,14 @@ init()
 
 st.markdown("""
 <style>
-    .stApp { background-color: #071521; color: #f3f0e7; }
-    h1, h2, h3, p, label, div, span { color: #f3f0e7; }
-    [data-testid="stMetric"] { background: #102536; border: 1px solid #29485b; padding: 14px; border-radius: 12px; }
-    .stButton > button { color: #ffffff !important; background: #17465a; border: 1px solid #47788b; border-radius: 9px; }
-    .stButton > button:disabled { color: #a6b3bb !important; background: #253541; }
-    div[data-baseweb="tab-list"] button { color: #f3f0e7 !important; }
+    .stApp { background-color: #f7f9fc; color: #172033; }
+    h1, h2, h3, p, label, div, span { color: #172033; }
+    [data-testid="stMetric"] { background: #ffffff; border: 1px solid #dce3ed; padding: 14px; border-radius: 12px; box-shadow: 0 2px 8px rgba(20,45,80,.04); }
+    .stButton > button { color: #ffffff !important; background: #2855d9; border: 1px solid #2855d9; border-radius: 9px; }
+    .stButton > button:disabled { color: #7b8798 !important; background: #e8edf5; border-color: #d4dce8; }
+    div[data-baseweb="tab-list"] button { color: #172033 !important; }
+    [data-testid="stExpander"] { background: #ffffff; border: 1px solid #dce3ed; border-radius: 12px; }
+    [data-testid="stAlert"] p { color: #172033 !important; }
 
     /* 왼쪽 기본 페이지 목록은 밝은 배경과 검은 글자로 표시 */
     [data-testid="stSidebar"] {
@@ -604,7 +765,12 @@ st.title("🚢 탄소중립 선박 경영")
 st.caption("수익을 얻어 선박을 개선하고, 2050년 탄소중립을 달성하세요.")
 if not st.session_state.started:
     st.markdown("## 바다를 항해하며 탄소중립에 도전하세요")
-    st.write("**목표:** 목적지로 화물을 운송해 돈을 벌고, 탄소 감축 설비를 구매해 배출량을 0%로 만드세요.")
+    st.write("**목표:** 선박을 운영해 수익을 얻고, 단계별 기술을 연구해 2050년 탄소중립을 달성하세요.")
+    login_col1, login_col2 = st.columns(2)
+    with login_col1:
+        st.text_input("해운 회사 이름", key="company_name")
+    with login_col2:
+        st.text_input("사용자 이름", key="captain_name")
     st.write("**중간 점검:** 2030년 배출량 80% 이하, 2040년 30% 이하, 2050년 0%를 달성해야 합니다.")
     st.write("**조작법:** 부산에서 출항해 해외 항구에 정박한 뒤, 다시 부산으로 돌아오면 운임을 정산합니다. 항해 중 사건은 선택지를 고르기 전까지 시간이 멈춥니다.")
     st.info("게임에서는 이해를 돕기 위해 감축량과 수치를 단순화했습니다.")
@@ -638,6 +804,29 @@ c1, c2, c3 = st.columns(3)
 c1.metric("현재 연도", f"{st.session_state.year}년")
 c2.metric("보유 자금", money_label(st.session_state.money))
 c3.metric("배출량", f"{emission}%")
+
+with st.expander("🏢 회사 및 선단 관리", expanded=True):
+    st.text_input("회사 이름", key="company_name")
+    st.text_input("사용자 이름", key="captain_name")
+    st.markdown("**보유 선박**")
+    for ship in st.session_state.fleet:
+        st.write(f"🚢 **{ship['name']}** · {ship['type']} · 구매가 {money_label(ship['price'])}")
+    st.selectbox(
+        "관리할 선박",
+        options=[ship["id"] for ship in st.session_state.fleet],
+        format_func=lambda sid: next(s["name"] + " · " + s["type"] for s in st.session_state.fleet if s["id"] == sid),
+        key="selected_ship_id",
+    )
+    with st.form("buy_ship_form", clear_on_submit=True):
+        st.markdown("**신규 선박 구매**")
+        new_type = st.selectbox("선박 종류", list(SHIP_TYPES.keys()))
+        new_name = st.text_input("선박 이름", placeholder="예: 푸른 항해호")
+        st.caption(f"예상 구매 비용: {money_label(ship_price(new_type))} · {SHIP_TYPES[new_type]['description']}")
+        submitted = st.form_submit_button("선박 구매", disabled=st.session_state.phase != "docked", use_container_width=True)
+        if submitted:
+            buy_ship(new_type, new_name)
+            st.rerun()
+
 next_checkpoint = next((year for year in sorted(CHECKPOINTS) if year not in st.session_state.checked), None)
 if next_checkpoint is None:
     st.info("모든 중간 점검을 통과했습니다.")
@@ -782,8 +971,21 @@ else:
 st.subheader("항구 정보")
 selected_port = st.session_state.selected_port
 can_choose = st.session_state.phase == "docked"
-if selected_port and selected_port in [d["name"] for d in DESTINATIONS]:
-    destination = next(d for d in DESTINATIONS if d["name"] == selected_port)
+ship = selected_ship()
+ship_type = ship["type"] if ship else "기본 화물선"
+available_special_ports = [
+    name for name in st.session_state.unlocked_special_ports
+    if name in SPECIAL_PORTS and ship_type in SPECIAL_PORTS[name]["ship_types"]
+]
+available_destinations = [d["name"] for d in DESTINATIONS]
+if ship_type in ("LNG선", "탱크선", "케미컬 탱커"):
+    available_destinations += available_special_ports
+if ship_type == "어선":
+    available_destinations = list(FISHING_GROUNDS)
+if selected_port and selected_port in available_destinations:
+    destination = next((d for d in DESTINATIONS if d["name"] == selected_port), None)
+    if destination is None:
+        destination = SPECIAL_PORTS.get(selected_port) or FISHING_GROUNDS.get(selected_port)
     years = actual_years(selected_port)
     income = actual_income(selected_port)
     features = {
@@ -795,15 +997,20 @@ if selected_port and selected_port in [d["name"] for d in DESTINATIONS]:
         "홍콩": "아시아의 주요 항만이자 환적 거점입니다.",
         "로스앤젤레스": "Port of Los Angeles의 ESI 프로그램은 등록된 선박의 ESI 점수 구간에 따라 입항별 인센티브를 제공합니다. 게임은 실제 ESI 점수를 계산하지 않고 배출량을 시연용 대체 기준으로 사용합니다.",
     }
-    current_fee, current_benefit = discounted_port_fee(selected_port)
-    st.markdown(f"### 📍 {selected_port} 항구")
+    if selected_port in [d["name"] for d in DESTINATIONS]:
+        current_fee, current_benefit = discounted_port_fee(selected_port)
+    else:
+        current_fee = int(destination.get("fee", 0))
+        current_benefit = {"discount_percent": 0, "arrival_bonus": 0, "note": destination.get("description", "게임용 목적지")}
+    suffix = " 어장" if selected_port in FISHING_GROUNDS else " 항구"
+    st.markdown(f"### 📍 {selected_port}{suffix}")
     info_cols = st.columns(3)
     info_cols[0].metric("예상 항해 기간", f"{years}년")
     info_cols[1].metric("예상 운임", money_label(income))
     info_cols[2].metric("적용 정박비", money_label(current_fee),
                         delta=(f"{current_benefit['discount_percent']}% 감면" if current_benefit["discount_percent"] else None),
                         delta_color="normal")
-    st.write(features[selected_port])
+    st.write(features.get(selected_port, destination.get("description", "게임용 목적지입니다.")))
     st.info(f"**게임 내 혜택:** {current_benefit['note'] or '현재 적용 가능한 별도 혜택 없음'}")
     official_sources = {
         "싱가포르": "https://www.mpa.gov.sg/finance-e-services/tariff-fees-and-charges/ocean-going-vessels/port-dues-concessions",
@@ -813,11 +1020,19 @@ if selected_port and selected_port in [d["name"] for d in DESTINATIONS]:
     if selected_port in official_sources:
         st.markdown(f"[항만 공식 출처 보기]({official_sources[selected_port]})")
     st.caption(f"기본 게임 정박비 {money_label(destination['fee'])} · 혜택 적용 후 정박비 {money_label(current_fee)}. 부산항 정박비 {money_label(1 * MONEY_SCALE)}는 별도이며 운임은 부산 귀항 후 지급됩니다. 실제 항만 요금과 자격 조건을 그대로 계산하는 시스템이 아니라, 공식 제도를 참고해 단순화한 게임 규칙입니다.")
-    if st.button(f"🚢 {selected_port}로 출항", key="selected_port_depart", disabled=not can_choose, use_container_width=True):
+    departure_label = f"🎣 {selected_port} 조업 출항" if selected_port in FISHING_GROUNDS else f"🚢 {selected_port}로 출항"
+    if st.button(departure_label, key="selected_port_depart", disabled=not can_choose, use_container_width=True):
         start_voyage(selected_port)
         st.rerun()
 else:
-    st.info("지도에서 부산이 아닌 목적지 핀(📍)을 선택하면 항구 정보와 출항 버튼이 나타납니다.")
+    st.info("지도에서 목적지 핀을 선택하거나 아래 목록에서 현재 선박이 이용할 수 있는 목적지를 선택하세요.")
+    if available_destinations:
+        manual_port = st.selectbox("목적항 / 어장 선택", available_destinations, key="manual_destination")
+        if st.button("목적지 정보 보기", key="manual_destination_pick", disabled=not can_choose, use_container_width=True):
+            st.session_state.selected_port = manual_port
+            st.rerun()
+    else:
+        st.warning("이 선박이 이용할 수 있는 특수 목적지가 없습니다.")
 
 if 4 in st.session_state.bought_tr:
     st.toggle("자동 운항", key="auto_on", disabled=st.session_state.phase != "docked",
@@ -835,28 +1050,28 @@ if st.session_state.event_log:
             st.write(f"• {event_line}")
 
 st.subheader("업그레이드 상점")
-eq_tab, tr_tab = st.tabs(["탄소 감축 설비", "운송 강화"])
+eq_tab, tr_tab = st.tabs(["탄소 기술 연구", "운송 강화"])
 with eq_tab:
-    for item in EQUIPMENT:
-        bought = item["id"] in st.session_state.bought_eq
-        enough_money = st.session_state.money >= item["price"]
-        row = st.columns([4, 1, 1])
-        with row[0]:
-            st.markdown(f"**{item['name']}**")
-            st.caption(f"{item['effect']} · 가격 {money_label(item['price'])}")
-            if not bought and not enough_money:
-                st.caption("자금 부족")
-        with row[1]:
-            if bought:
-                st.button("구매 완료", key=f"eq_done_{item['id']}", disabled=True, use_container_width=True)
+    st.caption("각 기술은 1단계부터 순서대로 연구합니다. 연구 효과는 회사 전체에 적용되며 수치는 게임용 단순화 값입니다.")
+    for tech in RESEARCH_TECHS:
+        level = int(st.session_state.research_levels.get(tech["id"], 0))
+        with st.container(border=True):
+            st.markdown(f"**{tech['name']}**")
+            st.caption(f"연구 진행: {level}/{len(tech['stages'])}단계")
+            for i, stage in enumerate(tech["stages"]):
+                mark = "✅" if i < level else ("➡️" if i == level else "🔒")
+                st.write(f"{mark} {stage['label']} · 탄소 감축 -{stage['reduction']}%p · 연구비 {money_label(stage['price'])}")
+            if level < len(tech["stages"]):
+                stage = tech["stages"][level]
+                st.button(
+                    f"{stage['label']} 연구하기", key=f"research_{tech['id']}",
+                    disabled=(st.session_state.phase != "docked" or st.session_state.money < stage["price"]),
+                    use_container_width=True, on_click=research_next_stage, args=(tech["id"],)
+                )
             else:
-                st.button("구매", key=f"eq_{item['id']}",
-                          disabled=(st.session_state.phase != "docked" or not enough_money),
-                          use_container_width=True, on_click=buy_equipment, args=(item["id"],))
-        with row[2]:
-            st.write(money_label(item["price"]))
-        st.divider()
+                st.success("기술 연구 완료")
 with tr_tab:
+
     for item in TRANSPORT:
         bought = item["id"] in st.session_state.bought_tr
         enough_money = st.session_state.money >= item["price"]
