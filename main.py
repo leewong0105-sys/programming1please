@@ -43,16 +43,17 @@ TRANSPORT = [
 
 
 # 선종별 추가 구매 비용 및 게임용 특수 목적지
+# 선종마다 첫 구매 가격을 다르게 설정했다. (게임 밸런스용 금액이며 실제 선박 시세는 아님)
 SHIP_TYPES = {
-    "기본 화물선": {"extra_price": 0, "kind": "일반", "description": "일반 항구 간 기본 화물 운송"},
-    "컨테이너선": {"extra_price": 10 * MONEY_SCALE, "kind": "일반", "description": "컨테이너 화물 운송"},
-    "어선": {"extra_price": 5 * MONEY_SCALE, "kind": "어선", "description": "어장으로 이동해 조업 후 어획물 판매"},
-    "탱크선": {"extra_price": 20 * MONEY_SCALE, "kind": "특수", "description": "액체 화물 운송"},
-    "케미컬 탱커": {"extra_price": 30 * MONEY_SCALE, "kind": "특수", "description": "화학제품 전문 운송"},
-    "LNG선": {"extra_price": 40 * MONEY_SCALE, "kind": "특수", "description": "액화천연가스 운송"},
+    "기본 화물선": {"base_price": 60 * MONEY_SCALE, "kind": "일반", "description": "일반 항구 간 기본 화물 운송"},
+    "컨테이너선": {"base_price": 120 * MONEY_SCALE, "kind": "일반", "description": "컨테이너 화물 운송"},
+    "어선": {"base_price": 35 * MONEY_SCALE, "kind": "어선", "description": "어장으로 이동해 조업 후 어획물 판매"},
+    "탱크선": {"base_price": 180 * MONEY_SCALE, "kind": "특수", "description": "액체 화물 운송"},
+    "케미컬 탱커": {"base_price": 220 * MONEY_SCALE, "kind": "특수", "description": "화학제품 전문 운송"},
+    "LNG선": {"base_price": 280 * MONEY_SCALE, "kind": "특수", "description": "액화천연가스 운송"},
 }
-SHIP_BASE_PRICE = 15 * MONEY_SCALE
-SHIP_PRICE_STEP = 5 * MONEY_SCALE
+# 같은 선종을 추가로 살 때마다 해당 선종의 기본 가격 15%만큼 비싸진다.
+SHIP_PRICE_STEP_RATE = 0.15
 
 RESEARCH_TECHS = [
     {"id": "ammonia", "name": "암모니아 추진 기술", "stages": [
@@ -245,7 +246,8 @@ def selected_ship():
 
 def ship_price(ship_type):
     count = sum(1 for ship in st.session_state.get("fleet", []) if ship["type"] == ship_type)
-    return SHIP_BASE_PRICE + SHIP_TYPES[ship_type]["extra_price"] + count * SHIP_PRICE_STEP
+    base_price = SHIP_TYPES[ship_type]["base_price"]
+    return int(base_price * (1 + SHIP_PRICE_STEP_RATE * count))
 
 
 def buy_ship(ship_type, ship_name):
@@ -729,7 +731,17 @@ init()
 
 st.markdown("""
 <style>
-    .stApp { background-color: #f7f9fc; color: #172033; }
+    .stApp { background-color: #f3f6fc; color: #172033; }
+    [data-testid="stMainBlockContainer"] { max-width: 1500px; padding-top: 1.2rem; }
+    h1 { font-size: 1.8rem !important; font-weight: 750 !important; letter-spacing: -0.04em; }
+    h2, h3 { letter-spacing: -0.025em; }
+    [data-testid="stMetric"] { min-height: 104px; display: flex; flex-direction: column; justify-content: center; }
+    [data-testid="stMetricLabel"] p { color: #69778d !important; font-size: .78rem !important; }
+    [data-testid="stMetricValue"] { color: #172033 !important; font-weight: 750 !important; }
+    [data-testid="stVerticalBlockBorderWrapper"] { border-color: #e1e7f0 !important; border-radius: 14px !important; }
+    .stButton > button { min-height: 2.65rem; font-weight: 650; box-shadow: 0 3px 9px rgba(40,85,217,.10); }
+    div[data-baseweb="select"] > div, .stTextInput input { border-radius: 9px !important; }
+    div[data-testid="stTabs"] button { font-weight: 650; }
     h1, h2, h3, p, label, div, span { color: #172033; }
     [data-testid="stMetric"] { background: #ffffff; border: 1px solid #dce3ed; padding: 14px; border-radius: 12px; box-shadow: 0 2px 8px rgba(20,45,80,.04); }
     .stButton > button { color: #ffffff !important; background: #2855d9; border: 1px solid #2855d9; border-radius: 9px; }
@@ -761,10 +773,15 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.title("🚢 탄소중립 선박 경영")
-st.caption("수익을 얻어 선박을 개선하고, 2050년 탄소중립을 달성하세요.")
 if not st.session_state.started:
-    st.markdown("## 바다를 항해하며 탄소중립에 도전하세요")
+    st.markdown("""
+    <div style="background:linear-gradient(135deg,#081a35 0%,#123d78 62%,#1e56b5 100%);padding:34px 36px;border-radius:20px;color:white;margin:4px 0 24px 0;box-shadow:0 14px 35px rgba(8,26,53,.18)">
+      <div style="font-size:12px;letter-spacing:3px;font-weight:800;color:#a9c7ff">MARITIME ZERO · MANAGEMENT SIMULATOR</div>
+      <div style="font-size:32px;font-weight:800;letter-spacing:-1px;margin:12px 0 8px;color:white">탄소중립 선박 경영</div>
+      <div style="font-size:15px;line-height:1.7;color:#e2ecff">해운회사를 설립하고 선단을 운영해 2050년 탄소중립에 도전하세요.</div>
+    </div>
+    """, unsafe_allow_html=True)
+    st.markdown("## 회사 설립 및 선주 등록")
     st.write("**목표:** 선박을 운영해 수익을 얻고, 단계별 기술을 연구해 2050년 탄소중립을 달성하세요.")
     login_col1, login_col2 = st.columns(2)
     with login_col1:
@@ -774,11 +791,23 @@ if not st.session_state.started:
     st.write("**중간 점검:** 2030년 배출량 80% 이하, 2040년 30% 이하, 2050년 0%를 달성해야 합니다.")
     st.write("**조작법:** 부산에서 출항해 해외 항구에 정박한 뒤, 다시 부산으로 돌아오면 운임을 정산합니다. 항해 중 사건은 선택지를 고르기 전까지 시간이 멈춥니다.")
     st.info("게임에서는 이해를 돕기 위해 감축량과 수치를 단순화했습니다.")
-    if st.button("게임 시작", key="start_game", type="primary", use_container_width=True):
-        st.session_state.started = True
-        st.session_state.phase = "docked"
-        st.rerun()
+    if st.button("회사 설립 후 게임 시작", key="start_game", type="primary", use_container_width=True):
+        if not st.session_state.company_name.strip() or not st.session_state.captain_name.strip():
+            st.error("해운회사 이름과 선주 이름을 모두 입력해 주세요.")
+        else:
+            st.session_state.started = True
+            st.session_state.phase = "docked"
+            st.rerun()
     st.stop()
+
+st.markdown(f"""
+<div style="display:flex;align-items:center;justify-content:space-between;gap:16px;background:#ffffff;border:1px solid #e1e7f0;border-radius:15px;padding:16px 20px;margin-bottom:18px;box-shadow:0 3px 12px rgba(20,45,80,.035)">
+ <div style="display:flex;align-items:center;gap:13px"><div style="width:42px;height:42px;border-radius:12px;background:#2855d9;color:white;display:flex;align-items:center;justify-content:center;font-size:22px">▥</div><div><div style="font-weight:800;letter-spacing:1.5px;color:#172033;font-size:14px">{st.session_state.company_name.upper()}</div><div style="font-size:10px;letter-spacing:2px;color:#7a879a">MARITIME GROUP</div></div></div>
+ <div style="text-align:right"><div style="font-size:11px;color:#7a879a">선주</div><div style="font-size:14px;font-weight:750;color:#172033">{st.session_state.captain_name}</div></div>
+</div>
+""", unsafe_allow_html=True)
+st.title("관제 센터")
+st.caption("선단 운영 현황을 확인하고, 수익과 탄소 감축 기술을 관리하세요.")
 
 if st.session_state.phase == "ended":
     if st.session_state.result == "success":
@@ -806,8 +835,10 @@ c2.metric("보유 자금", money_label(st.session_state.money))
 c3.metric("배출량", f"{emission}%")
 
 with st.expander("🏢 회사 및 선단 관리", expanded=True):
-    st.text_input("회사 이름", key="company_name")
-    st.text_input("사용자 이름", key="captain_name")
+    st.markdown(
+        f"**{st.session_state.company_name}**  ·  선주 **{st.session_state.captain_name}**",
+        help="회사명과 선주 이름은 로그인 화면에서 설정합니다."
+    )
     st.markdown("**보유 선박**")
     for ship in st.session_state.fleet:
         st.write(f"🚢 **{ship['name']}** · {ship['type']} · 구매가 {money_label(ship['price'])}")
