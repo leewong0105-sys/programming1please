@@ -134,7 +134,7 @@ def new_ship_state(ship_id, name, ship_type, price):
     return {
         "id": ship_id, "name": name, "type": ship_type, "price": price,
         "status": "docked", "phase": "docked", "dest": None,
-        "years_left": 0, "leg_years": 0, "pos": 0, "total": 0,
+        "years_left": 0, "leg_years": 0, "trip_elapsed": 0, "waiting_for_turn": False, "pos": 0, "total": 0,
         "weather": None, "weather_note": "", "voyage_income": 0,
         "returning_income": 0, "port_fee_paid": 0, "event_cooldown": 0,
         "last_event_title": None,
@@ -221,6 +221,7 @@ def init():
     """모든 페이지에서 공유하는 세션 상태를 초기화한다."""
     defaults = {
         "started": False,
+        "turn_animation_ships": [],
         "phase": "docked",
         "year": START_YEAR,
         "money": START_MONEY,
@@ -265,6 +266,7 @@ def init():
 def reset_game():
     defaults = {
         "started": False,
+        "turn_animation_ships": [],
         "phase": "docked",
         "year": START_YEAR,
         "money": START_MONEY,
@@ -510,7 +512,8 @@ def start_voyage(destination_name, ship=None):
     weather = random.choices(weather_options, weights=[2, 3, 3, 3], k=1)[0]
     ship.update({
         "dest": destination_name, "years_left": max(1, int(duration)),
-        "leg_years": max(1, int(duration)),
+        "leg_years": max(1, int(duration)), "trip_elapsed": 0,
+        "waiting_for_turn": True,
         "weather": weather["name"], "weather_note": weather["description"],
         "voyage_income": round(actual_income(destination_name) * weather["income_rate"]),
         "port_fee_paid": 0, "returning_income": round(actual_income(destination_name) * weather["income_rate"]),
@@ -610,8 +613,9 @@ def arrive(ship):
     if return_weather["income_rate"] < 1:
         ship["returning_income"] = round(ship.get("returning_income", 0) * return_weather["income_rate"])
     return_duration = max(1, actual_years(destination_name))
-    ship["years_left"] = return_duration
-    ship["leg_years"] = return_duration
+    # 왕복 전체 기간을 유지한다. 여기서 편도 기간을 다시 더하지 않는다.
+    ship["years_left"] = max(0, int(ship.get("years_left", return_duration)))
+    ship["leg_years"] = max(1, int(ship.get("leg_years", return_duration)))
     set_ship_status(ship, "returning")
     sync_ship_map_progress(ship)
     ship["event_cooldown"] = 2
@@ -630,6 +634,7 @@ def settle_return(ship):
     add_history()
     ship_name = ship.get("name", "선박")
     ship.update({"dest": None, "years_left": 0, "leg_years": 0,
+                 "trip_elapsed": 0, "waiting_for_turn": False,
                  "weather": None, "weather_note": "", "voyage_income": 0,
                  "returning_income": 0, "port_fee_paid": 0, "event_cooldown": 0})
     set_ship_status(ship, "docked")
@@ -1005,39 +1010,58 @@ st.title("관제 센터")
 st.caption("선단 운영 현황을 확인하고, 수익과 탄소 감축 기술을 관리하세요.")
 
 def advance_turn():
-    """다음 해로 버튼을 눌렀을 때만 정확히 1년 진행하고 선박 상태를 갱신한다."""
+    """다음 해로를 눌렀을 때만 1년 진행하고, 그 1년의 이동 애니메이션을 예약한다."""
     if st.session_state.phase == "ended":
         return
 
     old_year = int(st.session_state.year)
-    # 한 번 클릭할 때 반드시 1년만 진행한다. 출항 버튼에서는 연도를 변경하지 않는다.
-    st.session_state.year = min(END_YEAR, old_year + 1)
-    elapsed_years = st.session_state.year - old_year
-    if elapsed_years <= 0:
+    new_year = min(END_YEAR, old_year + 1)
+    if new_year == old_year:
         return
+    st.session_state.year = new_year
+    animation_ships = []
 
-    # 출항 중인 배는 목적지까지, 귀항 중인 배는 부산까지 1년씩 진행한다.
-    # 목적지 도착과 부산 귀항은 서로 다른 턴에서 처리해 한 번에 두 구간을 건너뛰지 않는다.
     for ship in list(st.session_state.fleet):
         status = ship.get("status", ship.get("phase", "docked"))
         if status not in ("outbound", "returning"):
             continue
+        if ship.get("waiting_for_turn", False):
+            ship["waiting_for_turn"] = False
 
-        ship["years_left"] = max(0, int(ship.get("years_left", 0)) - 1)
-        if ship["years_left"] > 0:
-            sync_ship_map_progress(ship)
-            continue
+        dest = ship.get("dest")
+        duration = max(1, int(ship.get("leg_years", actual_years(dest))))
+        elapsed_before = max(0, int(ship.get("trip_elapsed", 0)))
+        elapsed_after = min(duration, elapsed_before + 1)
+        ship["trip_elapsed"] = elapsed_after
+        ship["years_left"] = max(0, duration - elapsed_after)
 
-        if status == "outbound":
-            # 목적지 도착 처리 후 상태가 returning으로 바뀐다.
-            # 귀항 시간은 다음 '다음 해로' 클릭부터 계산한다.
+        # 지도는 왕복 항로 전체를 따라 이번 1년분만 재생한다.
+        one_way = SEA_ROUTES.get(dest, [PORT_COORDS["부산"]])
+        round_trip = list(one_way) + list(reversed(one_way[:-1]))
+        animation_ships.append({
+            "id": ship["id"], "name": ship["name"], "type": ship["type"],
+            # 왕복 전체 항로를 기준으로, 이번 버튼에서 1년분(전체의 1/N)만 재생한다.
+            "route": round_trip, "destination": dest, "phase": "outbound",
+            "pos": elapsed_before * 5, "end": elapsed_after * 5,
+            "total": duration * 5, "turn_step": True, "paused": False,
+        })
+
+        # 항해 시간은 왕복 총 기간이다. 기간의 절반 지점에서 목적지에 도착하고,
+        # 남은 기간은 귀항에 사용한다. 1년짜리 항로는 그해 안에 왕복을 마친다.
+        arrival_year = (duration + 1) // 2
+        if status == "outbound" and elapsed_after >= arrival_year:
             arrive(ship)
-        else:
+            ship["trip_elapsed"] = elapsed_after
+            ship["years_left"] = max(0, duration - elapsed_after)
+            if ship["years_left"] == 0:
+                settle_return(ship)
+        elif status == "returning" and elapsed_after >= duration:
             settle_return(ship)
+        else:
+            sync_ship_map_progress(ship)
 
-    # 선박 처리 이후 새 연도를 기준으로 회사 공통 점검을 판정한다.
+    st.session_state.turn_animation_ships = animation_ships
     check_year_checkpoint()
-    # Streamlit의 on_click 콜백은 종료 후 자동으로 다시 실행되므로 여기서 st.rerun()을 호출하지 않는다.
 
 
 # 턴제에서는 자동 시계를 사용하지 않는다. 버튼을 누르기 전까지 연도와 선박 시간이 멈춰 있다.
@@ -1140,9 +1164,10 @@ st.dataframe(status_rows, hide_index=True, use_container_width=True)
 st.subheader("실제 지도와 항로")
 st.caption("항해 중에는 지도 배경과 항구 핀을 유지하고 선박만 이동합니다. 목적지 선택은 정박 중 지도에서 할 수 있습니다.")
 
-travelling_ships = active_ships()
+turn_animation_ships = st.session_state.get("turn_animation_ships", [])
+travelling_ships = turn_animation_ships if turn_animation_ships else active_ships()
 if travelling_ships:
-    # 기존 Leaflet iframe/JS 이동 방식을 유지하되, 설정을 여러 선박 배열로 확장한다.
+    # 기존 Leaflet iframe/JS 이동 방식을 유지한다. 출항 직후에는 멈춰 있고, 턴 버튼으로만 애니메이션을 재생한다.
     map_config = {
         "ports": [{"name": name, "lat": coords[0], "lon": coords[1]} for name, coords in PORT_COORDS.items()],
         "ships": [
@@ -1151,7 +1176,7 @@ if travelling_ships:
              "destination": ship.get("dest"), "phase": ship.get("status", "docked"),
              "pos": round((max(1, int(ship.get("leg_years", 1))) - max(0, min(max(1, int(ship.get("leg_years", 1))), int(ship.get("years_left", 0))))) * 5),
              "total": max(1, int(ship.get("leg_years", 1))) * 5,
-             "paused": bool(st.session_state.event_pending)}
+             "paused": bool(st.session_state.event_pending or ship.get("waiting_for_turn", False))}
             for ship in travelling_ships
         ],
         "paused": bool(st.session_state.event_pending),
@@ -1201,7 +1226,11 @@ html,body{margin:0;padding:0;background:#071521;font-family:sans-serif}#map{heig
    const travelled=L.polyline([],{color:'#f2c14e',weight:4,opacity:.95}).addTo(map);
    const ship=L.marker(route[0]||[35.1796,129.0756],{icon:shipIcon,interactive:false,zIndexOffset:1000+index}).addTo(map);
    ship.bindTooltip(S.name+' · '+S.type,{permanent:true,direction:'top',offset:[0,-15]});
-   moving.push({S,route,ship,travelled,base:Math.max(0,Math.min(Math.max(1,Number(S.total)||1),Number(S.pos)||0)),total:Math.max(1,Number(S.total)||1),started:performance.now(),paused:!!C.paused});
+   moving.push({S,route,ship,travelled,
+     base:Math.max(0,Math.min(Math.max(1,Number(S.total)||1),Number(S.pos)||0)),
+     end:Math.max(0,Math.min(Math.max(1,Number(S.total)||1),Number(S.end ?? S.total)||0)),
+     total:Math.max(1,Number(S.total)||1),started:performance.now(),
+     turnStep:!!S.turn_step,paused:!!C.paused||!!S.paused});
  });
  const allPoints=[];(C.ships||[]).forEach(S=>(S.route||[]).forEach(p=>allPoints.push(p)));
  if(allPoints.length>1)map.fitBounds(L.latLngBounds(allPoints),{padding:[35,35],maxZoom:5,animate:false});
@@ -1209,11 +1238,20 @@ html,body{margin:0;padding:0;background:#071521;font-family:sans-serif}#map{heig
    let again=false;
    moving.forEach(M=>{
      let progress=M.base/M.total;
-     if(!M.paused)progress=Math.min(1,(M.base+(now-M.started)/1000)/M.total);
+     if(!M.paused){
+       if(M.turnStep){
+         // 다음 해로 클릭 한 번당 정확히 5초 동안 해당 1년 구간만 이동한다.
+         const start=M.base/M.total, end=M.end/M.total;
+         const t=Math.min(1,Math.max(0,(now-M.started)/5000));
+         progress=start+(end-start)*t;
+       }else{
+         progress=Math.min(1,(M.base+(now-M.started)/1000)/M.total);
+       }
+     }
      const f=M.S.phase==='returning'?1-progress:progress;
      M.ship.setLatLng(pointAt(M.route,f));
      M.travelled.setLatLngs(partialPath(M.route,progress,M.S.phase==='returning'));
-     if(!M.paused&&progress<1)again=true;
+     if(!M.paused&&(M.turnStep?progress<(M.end/M.total):progress<1))again=true;
    });
    if(again)requestAnimationFrame(tick);
  }
@@ -1222,6 +1260,12 @@ html,body{margin:0;padding:0;background:#071521;font-family:sans-serif}#map{heig
 })();
 </script></body></html>'''.replace("__CONFIG__", config_json)
     components.html(map_html, height=620, scrolling=False)
+    if turn_animation_ships:
+        st.session_state.turn_animation_ships = []
+        # 이번 턴 애니메이션이 끝난 뒤에는 다음 해로를 누를 때까지 정지한다.
+        for vessel in st.session_state.fleet:
+            if vessel.get("status") in ("outbound", "returning"):
+                vessel["waiting_for_turn"] = True
 else:
     # 정박 중에는 기존 Plotly 지도를 사용해 핀 클릭으로 목적지를 고르는 기능을 유지한다.
     map_event = st.plotly_chart(
