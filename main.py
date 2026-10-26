@@ -1108,15 +1108,6 @@ with st.expander("🏢 회사 및 선단 관리", expanded=True):
         format_func=lambda sid: next(s["name"] + " · " + s["type"] for s in st.session_state.fleet if s["id"] == sid),
         key="selected_ship_id",
     )
-    with st.form("buy_ship_form", clear_on_submit=True):
-        st.markdown("**신규 선박 구매**")
-        new_type = st.selectbox("선박 종류", list(SHIP_TYPES.keys()))
-        new_name = st.text_input("선박 이름", placeholder="예: 푸른 항해호")
-        st.caption(f"예상 구매 비용: {money_label(ship_price(new_type))} · {SHIP_TYPES[new_type]['description']}")
-        submitted = st.form_submit_button("선박 구매", disabled=st.session_state.phase == "ended", use_container_width=True)
-        if submitted:
-            buy_ship(new_type, new_name)
-            st.rerun()
 
 if st.session_state.msg:
     st.success(st.session_state.msg)
@@ -1413,7 +1404,7 @@ if st.session_state.event_log:
             st.write(f"• {event_line}")
 
 st.subheader("업그레이드 상점")
-eq_tab, tr_tab = st.tabs(["탄소 기술 연구", "운송 강화"])
+eq_tab, tr_tab, ship_tab = st.tabs(["탄소 기술 연구", "운송 강화", "선박 구매"])
 with eq_tab:
     st.caption("각 기술은 1단계부터 순서대로 연구합니다. 연구 효과는 회사 전체에 적용되며 수치는 게임용 단순화 값입니다.")
     for tech in RESEARCH_TECHS:
@@ -1454,4 +1445,16 @@ with tr_tab:
         with row[2]:
             st.write(money_label(item["price"]))
         st.divider()
+with ship_tab:
+    st.caption("새 선박을 구매하면 회사 선단에 추가됩니다. 구매 후 운항할 선박을 위의 선단 관리에서 선택할 수 있습니다.")
+    with st.container(border=True):
+        st.markdown("### 🚢 신규 선박 구매")
+        with st.form("buy_ship_form", clear_on_submit=True):
+            new_type = st.selectbox("선박 종류", list(SHIP_TYPES.keys()))
+            new_name = st.text_input("선박 이름", placeholder="예: 푸른 항해호")
+            st.caption(f"예상 구매 비용: {money_label(ship_price(new_type))} · {SHIP_TYPES[new_type]['description']}")
+            submitted = st.form_submit_button("선박 구매", disabled=st.session_state.phase == "ended", use_container_width=True, type="primary")
+            if submitted:
+                buy_ship(new_type, new_name)
+                st.rerun()
 
