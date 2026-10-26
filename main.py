@@ -129,6 +129,56 @@ SEA_ROUTES = {
 }
 
 
+def new_ship_state(ship_id, name, ship_type, price):
+    """선박별 운항 상태를 만든다. 회사 공통 값은 이 딕셔너리에 넣지 않는다."""
+    return {
+        "id": ship_id, "name": name, "type": ship_type, "price": price,
+        "phase": "docked", "dest": None, "pos": 0, "total": 0,
+        "weather": None, "weather_note": "", "voyage_income": 0,
+        "returning_income": 0, "port_fee_paid": 0, "event_cooldown": 0,
+        "last_event_title": None,
+        "voyage_event_count": 0, "event_log": [],
+    }
+
+
+def get_ship(ship_id=None):
+    fleet = st.session_state.get("fleet", [])
+    if ship_id is None:
+        ship_id = st.session_state.get("selected_ship_id", 1)
+    return next((ship for ship in fleet if ship.get("id") == ship_id), None)
+
+
+def active_ships():
+    return [ship for ship in st.session_state.get("fleet", [])
+            if ship.get("phase") in ("sailing", "returning")]
+
+
+def ensure_fleet_fields():
+    """이전 세션의 단일 선박 상태도 한 번만 선박 딕셔너리로 이전한다."""
+    fleet = st.session_state.get("fleet", [])
+    legacy_phase = st.session_state.get("phase", "docked")
+    legacy_fields = {
+        "phase": legacy_phase, "dest": st.session_state.get("dest"),
+        "pos": st.session_state.get("pos", 0), "total": st.session_state.get("total", 0),
+        "weather": st.session_state.get("weather"), "weather_note": st.session_state.get("weather_note", ""),
+        "voyage_income": st.session_state.get("voyage_income", 0),
+        "returning_income": st.session_state.get("returning_income", 0),
+        "port_fee_paid": st.session_state.get("port_fee_paid", 0),
+        "event_cooldown": st.session_state.get("event_cooldown", 0),
+        "voyage_event_count": st.session_state.get("voyage_event_count", 0),
+        "event_log": st.session_state.get("event_log", []).copy(),
+    }
+    for ship in fleet:
+        had_state = "phase" in ship
+        defaults = new_ship_state(ship.get("id", 1), ship.get("name", "선박"),
+                                  ship.get("type", "기본 화물선"), ship.get("price", 0))
+        for key, value in defaults.items():
+            if key not in ship:
+                ship[key] = value.copy() if isinstance(value, list) else value
+        if not had_state and ship.get("id") == st.session_state.get("selected_ship_id", 1) and legacy_phase in ("sailing", "returning"):
+            ship.update(legacy_fields)
+
+
 def init():
     """모든 페이지에서 공유하는 세션 상태를 초기화한다."""
     defaults = {
@@ -155,6 +205,7 @@ def init():
         "selected_port": None,
         "event_pending": None,
         "event_cooldown": 0,
+        "last_event_title": None,
         "voyage_event_count": 0,
         "port_fee_paid": 0,
         "returning_income": 0,
@@ -166,10 +217,13 @@ def init():
         "company_name": "노스스타 해운",
         "captain_name": "선장",
         "unlocked_special_ports": [],
+        "clock_ticks": 0,
     }
     for key, value in defaults.items():
         if key not in st.session_state:
             st.session_state[key] = value.copy() if isinstance(value, (list, dict)) else value
+    ensure_fleet_fields()
+    st.session_state.setdefault("clock_ticks", 0)
 
 
 def reset_game():
@@ -197,6 +251,7 @@ def reset_game():
         "selected_port": None,
         "event_pending": None,
         "event_cooldown": 0,
+        "last_event_title": None,
         "voyage_event_count": 0,
         "port_fee_paid": 0,
         "returning_income": 0,
@@ -208,23 +263,28 @@ def reset_game():
         "company_name": "노스스타 해운",
         "captain_name": "선장",
         "unlocked_special_ports": [],
+        "clock_ticks": 0,
     }
     for key, value in defaults.items():
         st.session_state[key] = value.copy() if isinstance(value, (list, dict)) else value
+    ensure_fleet_fields()
+    st.session_state.clock_ticks = 0
 
 
 def money_label(amount):
     """원 단위 금액을 한국어 큰 단위로 읽기 쉽게 표시한다."""
-    amount = max(0, int(amount))
+    amount = int(amount)
+    sign = "-" if amount < 0 else ""
+    amount = abs(amount)
     eok = amount // 100_000_000
     man = (amount % 100_000_000) // 10_000
     if eok and man:
-        return f"{eok}억 {man:,}만원"
+        return f"{sign}{eok}억 {man:,}만원"
     if eok:
-        return f"{eok}억원"
+        return f"{sign}{eok}억원"
     if man:
-        return f"{man:,}만원"
-    return f"{amount:,}원"
+        return f"{sign}{man:,}만원"
+    return f"{sign}{amount:,}원"
 
 
 def current_emission():
@@ -252,7 +312,7 @@ def ship_price(ship_type):
 
 def buy_ship(ship_type, ship_name):
     ship_name = (ship_name or "").strip()
-    if st.session_state.phase != "docked":
+    if st.session_state.phase == "ended":
         return
     if not ship_name:
         st.session_state.msg = "선박 이름을 입력해 주세요."
@@ -264,7 +324,7 @@ def buy_ship(ship_type, ship_name):
     if st.session_state.money < price:
         st.session_state.msg = "선박을 구매할 자금이 부족합니다."
         return
-    ship = {"id": st.session_state.next_ship_id, "name": ship_name, "type": ship_type, "price": price}
+    ship = new_ship_state(st.session_state.next_ship_id, ship_name, ship_type, price)
     st.session_state.money -= price
     st.session_state.fleet.append(ship)
     st.session_state.next_ship_id += 1
@@ -279,7 +339,7 @@ def buy_ship(ship_type, ship_name):
 
 
 def research_next_stage(tech_id):
-    if st.session_state.phase != "docked":
+    if st.session_state.phase == "ended":
         return
     tech = next((t for t in RESEARCH_TECHS if t["id"] == tech_id), None)
     if tech is None:
@@ -384,8 +444,23 @@ def add_history():
     })
 
 
-def start_voyage(destination_name):
-    if st.session_state.phase != "docked":
+def start_voyage(destination_name, ship=None):
+    """선택한 선박만 출항시킨다. 회사 전체 시계는 별도 fragment가 관리한다."""
+    ship = ship or selected_ship()
+    if not ship or ship.get("phase") != "docked" or st.session_state.phase == "ended":
+        return
+    ship_type = ship.get("type", "기본 화물선")
+    if destination_name in FISHING_GROUNDS and ship_type != "어선":
+        st.session_state.msg = "어장에는 어선만 출항할 수 있습니다."
+        return
+    if ship_type == "어선" and destination_name not in FISHING_GROUNDS:
+        st.session_state.msg = "어선은 지정된 어장으로만 출항할 수 있습니다."
+        return
+    if destination_name in SPECIAL_PORTS and ship_type not in SPECIAL_PORTS[destination_name]["ship_types"]:
+        st.session_state.msg = "이 특수 항구는 해당 선종만 이용할 수 있습니다."
+        return
+    if destination_name not in [item["name"] for item in DESTINATIONS] and destination_name not in SPECIAL_PORTS and destination_name not in FISHING_GROUNDS:
+        st.session_state.msg = "유효하지 않은 목적지입니다."
         return
     duration = actual_years(destination_name)
     weather_options = [
@@ -398,36 +473,42 @@ def start_voyage(destination_name):
         {"name": "폭풍", "seconds": 2, "income_rate": 0.90,
          "description": "폭풍을 만났습니다! 항해가 2초 지연되고 운임이 10% 감소합니다."},
     ]
-    weather = random.choices(weather_options, weights=[2, 3, 3, 3], k=1)[0]  # 악천후가 조금 더 자주 발생하도록 조정
-    st.session_state.dest = destination_name
-    st.session_state.pos = 0
-    st.session_state.total = max(1, duration * SEC_PER_YEAR + weather["seconds"])
-    st.session_state.weather = weather["name"]
-    st.session_state.weather_note = weather["description"]
-    st.session_state.voyage_income = round(actual_income(destination_name) * weather["income_rate"])
-    st.session_state.port_fee_paid = 0
-    st.session_state.returning_income = st.session_state.voyage_income
-    st.session_state.event_pending = None
-    st.session_state.event_cooldown = 3  # 출항 직후에는 이벤트가 바로 뜨지 않음
-    st.session_state.phase = "sailing"
-    st.session_state.msg = weather["description"]
+    weather = random.choices(weather_options, weights=[2, 3, 3, 3], k=1)[0]
+    ship.update({
+        "dest": destination_name, "pos": 0,
+        "total": max(1, duration * SEC_PER_YEAR + weather["seconds"]),
+        "weather": weather["name"], "weather_note": weather["description"],
+        "voyage_income": round(actual_income(destination_name) * weather["income_rate"]),
+        "port_fee_paid": 0, "returning_income": round(actual_income(destination_name) * weather["income_rate"]),
+        "event_cooldown": 3, "voyage_event_count": 0, "phase": "sailing",
+    })
+    st.session_state.msg = f"{ship['name']} 출항! {weather['description']}"
 
 
-def start_auto_voyage():
-    if st.session_state.phase != "docked" or not st.session_state.auto_on:
+def start_auto_voyage(ship=None):
+    ship = ship or selected_ship()
+    if not ship or ship.get("phase") != "docked" or not st.session_state.auto_on:
         return
     destination_name = AUTO_ROUTE[st.session_state.auto_idx % len(AUTO_ROUTE)]
-    start_voyage(destination_name)
+    if destination_name not in DESTINATIONS:
+        return
+    if ship.get("type") == "어선":
+        st.session_state.msg = "어선은 자동 항로 대신 지정된 어장을 선택해 출항해야 합니다."
+        return
+    start_voyage(destination_name, ship)
 
 
-def pause_voyage():
-    if st.session_state.phase == "sailing":
-        st.session_state.phase = "returning"
-        st.session_state.msg = "회항을 시작합니다."
+def pause_voyage(ship=None):
+    ship = ship or selected_ship()
+    if ship and ship.get("phase") == "sailing":
+        ship["phase"] = "returning"
+        ship["pos"] = 0
+        ship["total"] = max(1, int(ship.get("total", 1)))
+        st.session_state.msg = f"{ship['name']} 회항을 시작합니다."
 
 
 def buy_equipment(item_id):
-    if st.session_state.phase != "docked":
+    if st.session_state.phase == "ended":
         return
     item = next(item for item in EQUIPMENT if item["id"] == item_id)
     if item_id in st.session_state.bought_eq or st.session_state.money < item["price"]:
@@ -443,7 +524,7 @@ def buy_equipment(item_id):
 
 
 def buy_transport(item_id):
-    if st.session_state.phase != "docked":
+    if st.session_state.phase == "ended":
         return
     item = next(item for item in TRANSPORT if item["id"] == item_id)
     if item_id in st.session_state.bought_tr or st.session_state.money < item["price"]:
@@ -454,73 +535,78 @@ def buy_transport(item_id):
     add_history()
 
 
-def arrive():
-    """해외 항구 도착: 정박비를 내고 부산으로 귀항한다. 운임은 귀항 완료 후 지급."""
-    destination_name = st.session_state.dest
-    if destination_name is None:
-        st.session_state.phase = "docked"
+def arrive(ship):
+    """해외 항구 도착: 해당 선박의 정박비를 처리하고 귀항시킨다."""
+    destination_name = ship.get("dest")
+    if not destination_name:
+        ship["phase"] = "docked"
         return
-
     destination = next((item for item in DESTINATIONS if item["name"] == destination_name), None)
     if destination is None:
         destination = SPECIAL_PORTS.get(destination_name) or FISHING_GROUNDS.get(destination_name)
     if destination is None:
-        st.session_state.phase = "docked"
+        ship["phase"] = "docked"
         return
-    # 항만 혜택을 실제 게임 자금 계산에 반영한다. 요금·보상은 게임용 단순화 수치다.
     if destination_name in [d["name"] for d in DESTINATIONS]:
         port_fee, benefit = discounted_port_fee(destination_name)
     else:
         port_fee = int(destination.get("fee", 0))
         benefit = {"discount_percent": 0, "arrival_bonus": 0, "note": destination.get("description", "게임용 목적지")}
+    st.session_state.money -= int(port_fee)
+    ship["port_fee_paid"] = int(ship.get("port_fee_paid", 0)) + int(port_fee)
     fee_note = benefit["note"]
-    st.session_state.money -= port_fee
-    st.session_state.port_fee_paid += port_fee
     if benefit["arrival_bonus"]:
         st.session_state.money += int(benefit["arrival_bonus"])
         fee_note += f" · 항만 친환경 보너스 {money_label(benefit['arrival_bonus'])} 지급"
-    st.session_state.year = min(st.session_state.year + actual_years(destination_name), END_YEAR)
     add_history()
 
-    # 귀항도 별도의 출항이므로 날씨를 새로 판정한다.
     return_weather_options = [
-        {"name": "순풍", "seconds": -1, "income_rate": 1.00,
-         "description": "귀항 중 순풍입니다. 부산으로 조금 빠르게 돌아갑니다."},
-        {"name": "잔잔한 바다", "seconds": 0, "income_rate": 1.00,
-         "description": "귀항 중 바다가 잔잔합니다."},
-        {"name": "짙은 안개", "seconds": 1, "income_rate": 1.00,
-         "description": "귀항 중 짙은 안개로 항해가 지연됩니다."},
-        {"name": "폭풍", "seconds": 2, "income_rate": 0.90,
-         "description": "귀항 중 폭풍을 만났습니다. 항해가 지연되고 화물 운임이 10% 감소합니다."},
+        {"name": "순풍", "seconds": -1, "income_rate": 1.00, "description": "귀항 중 순풍입니다. 부산으로 조금 빠르게 돌아갑니다."},
+        {"name": "잔잔한 바다", "seconds": 0, "income_rate": 1.00, "description": "귀항 중 바다가 잔잔합니다."},
+        {"name": "짙은 안개", "seconds": 1, "income_rate": 1.00, "description": "귀항 중 짙은 안개로 항해가 지연됩니다."},
+        {"name": "폭풍", "seconds": 2, "income_rate": 0.90, "description": "귀항 중 폭풍을 만났습니다. 항해가 지연되고 화물 운임이 10% 감소합니다."},
     ]
     return_weather = random.choices(return_weather_options, weights=[2, 3, 3, 3], k=1)[0]
-    st.session_state.weather = return_weather["name"]
-    st.session_state.weather_note = return_weather["description"]
+    ship["weather"] = return_weather["name"]
+    ship["weather_note"] = return_weather["description"]
     if return_weather["income_rate"] < 1:
-        st.session_state.returning_income = round(st.session_state.returning_income * return_weather["income_rate"])
-    st.session_state.phase = "returning"
-    st.session_state.pos = 0
-    st.session_state.total = max(1, actual_years(destination_name) * SEC_PER_YEAR + return_weather["seconds"])
-    st.session_state.event_pending = None
-    st.session_state.event_cooldown = 2
-    st.session_state.voyage_event_count = 0
-    st.session_state.msg = f"{destination_name} 도착! 정박비 {money_label(port_fee)} 지출. 귀항 날씨: {return_weather['name']}. {fee_note} 운임은 부산 도착 후 정산됩니다."
+        ship["returning_income"] = round(ship.get("returning_income", 0) * return_weather["income_rate"])
+    ship["phase"] = "returning"
+    ship["pos"] = 0
+    ship["total"] = max(1, actual_years(destination_name) * SEC_PER_YEAR + return_weather["seconds"])
+    ship["event_cooldown"] = 2
+    ship["voyage_event_count"] = 0
+    st.session_state.msg = f"{ship['name']} 도착! 정박비 {money_label(port_fee)} 지출. 귀항 날씨: {return_weather['name']}. {fee_note} 운임은 부산 도착 후 정산됩니다."
 
 
-def settle_return():
-    """부산항 귀항 후 운임과 비용을 정산하고 다음 운항을 준비한다."""
-    destination_name = st.session_state.dest
-    income = int(st.session_state.returning_income or 0)
+def settle_return(ship):
+    """부산항 귀항 후 해당 선박만 정산한다. 연도/점검은 통합 시계만 담당한다."""
+    if not ship or ship.get("phase") != "returning":
+        return
+    income = int(ship.get("returning_income", 0) or 0)
     busan_fee = 1 * MONEY_SCALE
     st.session_state.money -= busan_fee
     st.session_state.money += income
-    st.session_state.year = min(st.session_state.year + actual_years(destination_name), END_YEAR)
     add_history()
-    emission = current_emission()
-    passed_messages = []
+    ship_name = ship.get("name", "선박")
+    ship.update({"phase": "docked", "dest": None, "pos": 0, "total": 0,
+                 "weather": None, "weather_note": "", "voyage_income": 0,
+                 "returning_income": 0, "port_fee_paid": 0, "event_cooldown": 0})
+    if st.session_state.auto_on:
+        st.session_state.auto_idx = (st.session_state.auto_idx + 1) % len(AUTO_ROUTE)
+    st.session_state.msg = f"{ship_name} 부산항 귀항 완료! 운임 {money_label(income)} 지급, 부산항 정박비 {money_label(busan_fee)} 차감."
 
+
+def finish_return(ship):
+    settle_return(ship)
+
+
+def check_year_checkpoint():
+    """연도가 바뀐 순간에만 한 번 호출한다."""
+    emission = current_emission()
+    messages = []
     for checkpoint_year in sorted(CHECKPOINTS):
-        if st.session_state.year >= checkpoint_year and checkpoint_year not in st.session_state.checked:
+        if st.session_state.year == checkpoint_year and checkpoint_year not in st.session_state.checked:
             limit = CHECKPOINTS[checkpoint_year]
             if emission > limit:
                 st.session_state.phase = "ended"
@@ -529,8 +615,7 @@ def settle_return():
                 st.session_state.msg = ""
                 return
             st.session_state.checked.append(checkpoint_year)
-            passed_messages.append(f"{checkpoint_year}년 점검 통과!")
-
+            messages.append(f"{checkpoint_year}년 점검 통과!")
     if st.session_state.year >= END_YEAR:
         st.session_state.phase = "ended"
         if emission == 0:
@@ -538,67 +623,96 @@ def settle_return():
         else:
             st.session_state.result = "fail"
             st.session_state.fail_reason = f"2050년 최종 점검 실패: 배출량 {emission}% (기준 0%)"
-        st.session_state.msg = " ".join(passed_messages)
+    if messages:
+        st.session_state.msg = " ".join(messages)
+    add_history()
+
+
+def event_condition_government(ship):
+    return current_emission() <= 70
+
+
+def event_condition_big_client(ship):
+    return current_emission() <= 60
+
+
+def event_condition_research_lab(ship):
+    levels = st.session_state.get("research_levels", {})
+    return any(int(levels.get(tech["id"], 0)) < len(tech["stages"]) for tech in RESEARCH_TECHS)
+
+
+def event_condition_strike(ship):
+    return bool(ship and ship.get("phase") == "sailing")
+
+
+def event_condition_dolphins(ship):
+    return bool(ship and ship.get("phase") in ("sailing", "returning"))
+
+
+def event_condition_always(ship):
+    return bool(ship and ship.get("phase") in ("sailing", "returning"))
+
+
+def trigger_random_event(ship=None):
+    """조건을 만족하는 이벤트 중 하나를 선택한다. 직전 이벤트는 연속 발생하지 않는다."""
+    travelling = active_ships()
+    if ship is None:
+        eligible_ships = [s for s in travelling if int(s.get("event_cooldown", 0)) <= 0]
+        if not eligible_ships:
+            return
+        ship = random.choice(eligible_ships)
+    if not ship or ship.get("phase") not in ("sailing", "returning"):
         return
 
-    if st.session_state.auto_on:
-        st.session_state.auto_idx = (st.session_state.auto_idx + 1) % len(AUTO_ROUTE)
-    st.session_state.msg = " ".join(passed_messages + [
-        f"부산항 귀항 완료! 운임 {money_label(income)} 지급, 부산항 정박비 {money_label(busan_fee)} 차감."
-    ])
-    st.session_state.phase = "docked"
-    st.session_state.dest = None
-    st.session_state.pos = 0
-    st.session_state.total = 0
-    st.session_state.weather = None
-    st.session_state.weather_note = ""
-    st.session_state.voyage_income = 0
-    st.session_state.returning_income = 0
-    st.session_state.port_fee_paid = 0
-    st.session_state.event_pending = None
-
-
-def finish_return():
-    settle_return()
-
-
-def trigger_random_event():
-    """시연용 이벤트를 발생시킨다. 선택 결과는 성공/실패 판정에 따라 달라질 수 있다."""
     events = [
-        {
-            "title": "긴급 운송 계약",
-            "description": "긴급 화물을 추가 운송하면 보너스를 받을 수 있습니다. 일정에 맞추지 못하면 위약금이 발생합니다.",
-            "choices": [
-                {"label": "계약 수락", "success_chance": 0.75, "success_delta": 8 * MONEY_SCALE,
-                 "fail_delta": -3 * MONEY_SCALE, "success": "긴급 운송 계약 성공! 보너스 800만원을 받았습니다.",
-                 "failure": "납기 지연으로 위약금 300만원을 냈습니다."},
-                {"label": "거절", "delta": 0, "result": "계약을 거절하고 기존 항해를 계속합니다."},
-            ],
-        },
-        {
-            "title": "엔진 이상 경고",
-            "description": "지금 점검하면 비용이 들지만, 방치하면 더 큰 손실이 날 수 있습니다.",
-            "choices": [
-                {"label": "긴급 점검 (-300만원)", "delta": -3 * MONEY_SCALE,
-                 "result": "엔진을 점검했습니다. 큰 고장을 예방했습니다."},
-                {"label": "운항 강행", "success_chance": 0.45, "success_delta": 0,
-                 "fail_delta": -8 * MONEY_SCALE, "success": "다행히 엔진이 버텼습니다. 추가 비용 없이 항해합니다.",
-                 "failure": "엔진 고장! 수리비 800만원을 부담했습니다."},
-            ],
-        },
-        {
-            "title": "해적 위험 경보",
-            "description": "의심 선박이 감지됐습니다. 안전을 확보할지, 위험을 감수할지 선택하세요.",
-            "choices": [
-                {"label": "보안 호위 요청 (-200만원)", "delta": -2 * MONEY_SCALE,
-                 "result": "호위 서비스를 이용해 안전하게 통과했습니다."},
-                {"label": "항로 유지", "success_chance": 0.50, "success_delta": 4 * MONEY_SCALE,
-                 "fail_delta": -10 * MONEY_SCALE, "success": "위험을 무사히 통과했습니다. 일정 보너스 400만원을 얻었습니다.",
-                 "failure": "해적 피해로 화물과 장비 일부가 손상됐습니다. 손실 1,000만원이 발생했습니다."},
-            ],
-        },
+        {"title": "긴급 운송 계약", "condition": event_condition_always,
+         "description": "긴급 화물을 추가 운송하면 보너스를 받을 수 있습니다. 일정에 맞추지 못하면 위약금이 발생합니다.",
+         "choices": [
+             {"label": "계약 수락", "success_chance": 0.75, "success_delta": 8 * MONEY_SCALE, "fail_delta": -3 * MONEY_SCALE,
+              "success": "긴급 운송 계약 성공! 보너스 800만원을 받았습니다.", "failure": "납기 지연으로 위약금 300만원을 냈습니다."},
+             {"label": "거절", "delta": 0, "result": "계약을 거절하고 기존 항해를 계속합니다."}]},
+        {"title": "엔진 이상 경고", "condition": event_condition_always,
+         "description": "지금 점검하면 비용이 들지만, 방치하면 더 큰 손실이 날 수 있습니다.",
+         "choices": [
+             {"label": "긴급 점검 (-300만원)", "delta": -3 * MONEY_SCALE, "result": "엔진을 점검했습니다. 큰 고장을 예방했습니다."},
+             {"label": "운항 강행", "success_chance": 0.45, "success_delta": 0, "fail_delta": -8 * MONEY_SCALE,
+              "success": "다행히 엔진이 버텼습니다. 추가 비용 없이 항해합니다.", "failure": "엔진 고장! 수리비 800만원을 부담했습니다."}]},
+        {"title": "해적 위험 경보", "condition": event_condition_always,
+         "description": "의심 선박이 감지됐습니다. 안전을 확보할지, 위험을 감수할지 선택하세요.",
+         "choices": [
+             {"label": "보안 호위 요청 (-200만원)", "delta": -2 * MONEY_SCALE, "result": "호위 서비스를 이용해 안전하게 통과했습니다."},
+             {"label": "항로 유지", "success_chance": 0.50, "success_delta": 4 * MONEY_SCALE, "fail_delta": -10 * MONEY_SCALE,
+              "success": "위험을 무사히 통과했습니다. 일정 보너스 400만원을 얻었습니다.", "failure": "해적 피해로 화물과 장비 일부가 손상됐습니다. 손실 1,000만원이 발생했습니다."}]},
+        {"title": "정부 친환경 보조금 심사", "condition": event_condition_government,
+         "description": "회사의 친환경 전환 성과를 인정받아 정부 보조금 심사 결과가 나왔습니다.",
+         "choices": [{"label": "확인", "effect": "government_grant"}]},
+        {"title": "대형 화주의 러브콜", "condition": event_condition_big_client,
+         "description": "대형 화주가 제안했습니다. 이번 항해 운임을 높이거나 계약금을 즉시 받을 수 있습니다.",
+         "choices": [
+             {"label": "운임 20% 인상", "effect": "income_percent", "percent": 20},
+             {"label": "계약금 300만원 받기", "delta": 3 * MONEY_SCALE, "result": "계약금 300만원을 즉시 받았습니다."}]},
+        {"title": "연구소 신기술 시범 제안", "condition": event_condition_research_lab,
+         "description": "연구소가 미완료 탄소 기술의 무료 시범 연구를 제안했습니다. 수락 성공 확률은 50%입니다.",
+         "choices": [
+             {"label": "시범 연구 수락", "effect": "free_research_chance", "success_chance": 0.5},
+             {"label": "거절", "delta": 0, "result": "시범 연구 제안을 거절했습니다. 변화는 없습니다."}]},
+        {"title": "항만 파업", "condition": event_condition_strike,
+         "description": "목적지 항만에서 파업이 발생했습니다. 기다리거나 우회 하역을 선택할 수 있습니다.",
+         "choices": [
+             {"label": "파업이 끝나길 기다리기 (+2초)", "effect": "time_delta", "seconds": 2},
+             {"label": "다른 항구로 우회·하역 (-400만원)", "delta": -4 * MONEY_SCALE, "result": "우회 하역을 선택했습니다. 비용 400만원이 발생했지만 추가 지연은 없습니다."}]},
+        {"title": "돌고래 떼", "condition": event_condition_dolphins,
+         "description": "돌고래 떼가 배를 따라옵니다. 보고 지나가면 운이 좋아질지도 모릅니다.",
+         "choices": [{"label": "확인", "effect": "dolphin_luck"}]},
     ]
-    event = random.choice(events).copy()
+    last_title = st.session_state.get("last_event_title")
+    candidates = [e for e in events if e["title"] != last_title and e["condition"](ship)]
+    if not candidates:
+        return
+    event = random.choice(candidates).copy()
+    event["ship_id"] = ship["id"]
+    event["ship_name"] = ship["name"]
+    event["ship_type"] = ship["type"]
     st.session_state.event_pending = event
 
 
@@ -606,29 +720,78 @@ def resolve_event(choice_index):
     event = st.session_state.event_pending
     if not event:
         return
+    if choice_index < 0 or choice_index >= len(event.get("choices", [])):
+        return
     choice = event["choices"][choice_index]
+    ship = get_ship(event.get("ship_id"))
+    effect = choice.get("effect")
+    result = choice.get("result", "선택을 적용했습니다.")
+    delta = int(choice.get("delta", 0))
 
-    if "success_chance" in choice:
+    # 기존 delta / success_chance 이벤트 호환
+    if "success_chance" in choice and effect not in ("free_research_chance",):
         if random.random() < choice["success_chance"]:
-            delta = int(choice.get("success_delta", 0))
-            result = choice["success"]
+            delta, result = int(choice.get("success_delta", delta)), choice.get("success", result)
         else:
-            delta = int(choice.get("fail_delta", 0))
-            result = choice["failure"]
-    else:
-        delta = int(choice.get("delta", 0))
-        result = choice.get("result", "선택을 적용했습니다.")
+            delta, result = int(choice.get("fail_delta", 0)), choice.get("failure", result)
 
-    # 비용 선택 시 보유 자금보다 더 많이 빠져나가지 않도록 제한한다.
-    if delta < 0:
-        delta = -min(st.session_state.money, abs(delta))
+    if effect == "government_grant":
+        emission = current_emission()
+        if emission <= 30:
+            delta, result = 10 * MONEY_SCALE, "친환경 성과 우수! 정부 보조금 1,000만원을 받았습니다."
+        elif emission <= 50:
+            delta, result = 5 * MONEY_SCALE, "친환경 성과를 인정받아 정부 보조금 500만원을 받았습니다."
+        else:
+            delta, result = 2 * MONEY_SCALE, "정부 보조금 200만원을 받았습니다."
+    elif effect == "income_percent":
+        if ship:
+            old_income = int(ship.get("returning_income", 0))
+            ship["returning_income"] = max(0, round(old_income * (1 + float(choice.get("percent", 0)) / 100)))
+            ship["voyage_income"] = ship["returning_income"]
+            result = f"이번 항해 예상 운임이 20% 증가했습니다. ({money_label(old_income)} → {money_label(ship['returning_income'])})"
+    elif effect == "time_delta":
+        if ship:
+            seconds = int(choice.get("seconds", 0))
+            ship["total"] = max(int(ship.get("pos", 0)) + 1, int(ship.get("total", 1)) + seconds)
+            result = f"항해 시간이 {seconds}초 늘어났습니다."
+    elif effect == "free_research_chance":
+        if random.random() < float(choice.get("success_chance", 0.5)):
+            levels = st.session_state.get("research_levels", {})
+            available = [t for t in RESEARCH_TECHS if int(levels.get(t["id"], 0)) < len(t["stages"])]
+            if available:
+                tech = random.choice(available)
+                level = int(levels.get(tech["id"], 0))
+                stage = tech["stages"][level]
+                levels[tech["id"]] = level + 1
+                st.session_state.research_levels = levels
+                result = f"시범 연구 성공! {tech['name']} {level + 1}단계를 무료로 완료해 배출량을 {stage['reduction']}%p 감축했습니다."
+            else:
+                result = "완료할 연구가 없어 시범 연구 효과가 발생하지 않았습니다."
+        else:
+            delta, result = -2 * MONEY_SCALE, "시범 연구에 실패했습니다. 연구 지원 비용 200만원이 발생했습니다."
+    elif effect == "dolphin_luck":
+        if random.choice([True, False]):
+            delta = random.randint(1, 3) * MONEY_SCALE
+            result = f"돌고래의 행운! 소액 보너스 {money_label(delta)}을 받았습니다."
+        else:
+            if ship:
+                ship["total"] = max(int(ship.get("pos", 0)) + 1, int(ship.get("total", 1)) - 1)
+            result = "돌고래 떼를 따라 순조롭게 항해해 남은 시간이 1초 줄었습니다."
+
     st.session_state.money += delta
-    st.session_state.event_log.append(f"{event['title']}: {result}")
+    if ship:
+        ship.setdefault("event_log", []).append(f"{event['title']}: {result}")
+        ship["event_cooldown"] = 8
+        ship["voyage_event_count"] = ship.get("voyage_event_count", 0) + 1
+    st.session_state.event_log.append(f"{event.get('ship_name', '선박')} ({event.get('ship_type', '')}) · {event['title']}: {result}")
+    st.session_state.last_event_title = event["title"]
     st.session_state.msg = result
     st.session_state.event_pending = None
-    st.session_state.event_cooldown = 2
-    st.session_state.voyage_event_count = st.session_state.get("voyage_event_count", 0) + 1
     add_history()
+    if current_emission() == 0 and st.session_state.phase != "ended":
+        st.session_state.phase = "ended"
+        st.session_state.result = "success"
+        st.session_state.msg += " 회사 전체 배출량 0% 달성! 탄소중립 성공!"
 
 
 def route_position(route, fraction):
@@ -672,41 +835,30 @@ def make_route_map():
         hovertemplate="%{customdata}<br>클릭해서 항구 정보 보기<extra></extra>",
     ))
 
-    dest_name = st.session_state.dest
-    if dest_name in SEA_ROUTES:
-        route = SEA_ROUTES[dest_name]
-        total = max(1, int(st.session_state.total))
-        fraction = min(1.0, max(0.0, st.session_state.pos / total))
-        if st.session_state.phase == "returning":
+    # 정박 지도에서도 항해 중인 모든 선박의 현재 위치를 표시한다.
+    for ship in active_ships():
+        dest_name = ship.get("dest")
+        route = SEA_ROUTES.get(dest_name)
+        if not route:
+            continue
+        total = max(1, int(ship.get("total", 1)))
+        fraction = min(1.0, max(0.0, int(ship.get("pos", 0)) / total))
+        if ship.get("phase") == "returning":
             fraction = 1.0 - fraction
         ship_lat, ship_lon = route_position(route, fraction)
-        route_lats = [p[0] for p in route]
-        route_lons = [p[1] for p in route]
         fig.add_trace(go.Scattermap(
-            lat=route_lats, lon=route_lons, mode="lines",
-            line={"width": 4, "color": "#42c7d9"}, name="바닷길", hoverinfo="skip",
-        ))
-        # 경유점을 따라 이동한 항로를 표시
-        travelled_route = []
-        for i, point in enumerate(route):
-            travelled_route.append(point)
-            if i < len(route) - 1:
-                seg_start = sum((((route[j+1][0]-route[j][0])**2 + (route[j+1][1]-route[j][1])**2)**0.5) for j in range(i))
-                seg_len = ((route[i+1][0]-route[i][0])**2 + (route[i+1][1]-route[i][1])**2)**0.5
-                if fraction * sum((((route[j+1][0]-route[j][0])**2 + (route[j+1][1]-route[j][1])**2)**0.5) for j in range(len(route)-1)) <= seg_start + seg_len:
-                    travelled_route.append((ship_lat, ship_lon))
-                    break
-        fig.add_trace(go.Scattermap(
-            lat=[p[0] for p in travelled_route], lon=[p[1] for p in travelled_route],
-            mode="lines", line={"width": 5, "color": "#f2c14e"}, name="이동한 바닷길", hoverinfo="skip",
+            lat=[p[0] for p in route], lon=[p[1] for p in route], mode="lines",
+            line={"width": 3, "color": "#42c7d9"}, name=f"{ship['name']} 항로", hoverinfo="skip",
         ))
         fig.add_trace(go.Scattermap(
             lat=[ship_lat], lon=[ship_lon], mode="markers+text",
             marker={"size": 18, "color": "#ff6b6b", "symbol": "circle"},
-            text=["🚢 선박"], textposition="bottom right",
-            textfont={"color": "#ffffff", "size": 12}, name="현재 선박 위치",
-            hovertemplate="현재 선박 위치<extra></extra>",
+            text=[f"🚢 {ship['name']}"], textposition="bottom right",
+            textfont={"color": "#ffffff", "size": 12}, name=f"{ship['name']} 위치",
+            hovertemplate=f"{ship['name']} · {ship.get('type', '')}<extra></extra>",
         ))
+    selected = selected_ship()
+    dest_name = selected.get("dest") if selected else None
 
     if dest_name in PORT_COORDS:
         center_lat = (PORT_COORDS["부산"][0] + PORT_COORDS[dest_name][0]) / 2
@@ -809,6 +961,63 @@ st.markdown(f"""
 st.title("관제 센터")
 st.caption("선단 운영 현황을 확인하고, 수익과 탄소 감축 기술을 관리하세요.")
 
+# 항해 진행은 fragment에서만 1초마다 갱신한다.
+# 지도 렌더링은 fragment 바깥에 두어, 매초 iframe/지도 인스턴스가 재생성되지 않게 한다.
+@st.fragment(run_every="1s")
+def advance_voyage_clock():
+    """유일한 게임 시계: 1초마다 1틱, 5틱마다 연도 진행 및 전체 선박 이동."""
+    emission = current_emission()
+    c1, c2, c3 = st.columns(3)
+    c1.metric("현재 연도", f"{st.session_state.year}년")
+    c2.metric("보유 자금", money_label(st.session_state.money))
+    c3.metric("배출량", f"{emission}%")
+    next_checkpoint = next((year for year in sorted(CHECKPOINTS) if year not in st.session_state.checked), None)
+    if next_checkpoint is None:
+        st.info("모든 중간 점검을 통과했습니다.")
+    else:
+        st.markdown(f"**다음 점검: {next_checkpoint}년 (배출량 {CHECKPOINTS[next_checkpoint]}% 이하)**")
+    if st.session_state.phase == "ended" or st.session_state.event_pending:
+        return
+
+    st.session_state.clock_ticks = int(st.session_state.get("clock_ticks", 0)) + 1
+    if st.session_state.clock_ticks % SEC_PER_YEAR == 0:
+        old_year = int(st.session_state.year)
+        st.session_state.year = min(END_YEAR, old_year + 1)
+        if st.session_state.year != old_year:
+            check_year_checkpoint()
+            if st.session_state.phase == "ended":
+                st.rerun()
+                return
+
+    travelling = active_ships()
+    if not travelling:
+        return
+
+    # 이벤트 확률은 회사 전체 기준으로 적용해 선박 수만큼 기하급수적으로 늘지 않게 한다.
+    eligible = []
+    for ship in travelling:
+        if ship.get("event_cooldown", 0) > 0:
+            ship["event_cooldown"] -= 1
+        else:
+            eligible.append(ship)
+    if eligible and random.random() < 0.05:
+        trigger_random_event(random.choice(eligible))
+        st.rerun()
+        return
+
+    for ship in list(travelling):
+        ship["pos"] = int(ship.get("pos", 0)) + 1
+        if ship["pos"] >= int(ship.get("total", 1)):
+            if ship.get("phase") == "sailing":
+                arrive(ship)
+            elif ship.get("phase") == "returning":
+                finish_return(ship)
+    # Streamlit fragment만 매초 갱신한다. 지도 iframe은 이 함수 안에 두지 않는다.
+    if st.session_state.phase == "ended":
+        st.rerun()
+
+advance_voyage_clock()
+
 if st.session_state.phase == "ended":
     if st.session_state.result == "success":
         st.success("🎉 성공! 탄소중립 목표를 달성했습니다.")
@@ -827,12 +1036,6 @@ if st.session_state.phase == "ended":
         reset_game()
         st.rerun()
     st.stop()
-
-emission = current_emission()
-c1, c2, c3 = st.columns(3)
-c1.metric("현재 연도", f"{st.session_state.year}년")
-c2.metric("보유 자금", money_label(st.session_state.money))
-c3.metric("배출량", f"{emission}%")
 
 with st.expander("🏢 회사 및 선단 관리", expanded=True):
     st.markdown(
@@ -853,50 +1056,23 @@ with st.expander("🏢 회사 및 선단 관리", expanded=True):
         new_type = st.selectbox("선박 종류", list(SHIP_TYPES.keys()))
         new_name = st.text_input("선박 이름", placeholder="예: 푸른 항해호")
         st.caption(f"예상 구매 비용: {money_label(ship_price(new_type))} · {SHIP_TYPES[new_type]['description']}")
-        submitted = st.form_submit_button("선박 구매", disabled=st.session_state.phase != "docked", use_container_width=True)
+        submitted = st.form_submit_button("선박 구매", disabled=st.session_state.phase == "ended", use_container_width=True)
         if submitted:
             buy_ship(new_type, new_name)
             st.rerun()
-
-next_checkpoint = next((year for year in sorted(CHECKPOINTS) if year not in st.session_state.checked), None)
-if next_checkpoint is None:
-    st.info("모든 중간 점검을 통과했습니다.")
-else:
-    st.markdown(f"**다음 점검: {next_checkpoint}년 (배출량 {CHECKPOINTS[next_checkpoint]}% 이하)**")
 
 if st.session_state.msg:
     st.success(st.session_state.msg)
     st.session_state.msg = ""
 
-# 항해 진행은 fragment에서만 1초마다 갱신한다.
-# 지도 렌더링은 fragment 바깥에 두어, 매초 iframe/지도 인스턴스가 재생성되지 않게 한다.
-@st.fragment(run_every="1s")
-def advance_voyage_clock():
-    if st.session_state.phase not in ("sailing", "returning") or st.session_state.event_pending:
-        return
 
-    if st.session_state.event_cooldown > 0:
-        st.session_state.event_cooldown -= 1
-    elif random.random() < 0.12:
-        trigger_random_event()
-        st.rerun()
-        return
-
-    st.session_state.pos += 1
-    if st.session_state.pos >= st.session_state.total:
-        if st.session_state.phase == "sailing":
-            arrive()
-        else:
-            finish_return()
-        st.rerun()
-
-advance_voyage_clock()
 
 # 이벤트 선택창은 반드시 지도 바로 위에 표시한다.
-if st.session_state.event_pending and st.session_state.phase in ("sailing", "returning"):
+if st.session_state.event_pending and st.session_state.phase != "ended":
     event = st.session_state.event_pending
     with st.container(border=True):
         st.subheader(f"⚠️ 긴급 상황: {event['title']}")
+        st.markdown(f"**발생 선박:** {event.get('ship_name', '선박')} · {event.get('ship_type', '선종 미상')}")
         st.write(event["description"])
         event_cols = st.columns(len(event["choices"]))
         for i, choice in enumerate(event["choices"]):
@@ -905,21 +1081,39 @@ if st.session_state.event_pending and st.session_state.phase in ("sailing", "ret
                 use_container_width=True, on_click=resolve_event, args=(i,)
             )
 
+st.subheader("선박 상태 현황")
+status_rows = []
+for vessel in st.session_state.fleet:
+    vphase = vessel.get("phase", "docked")
+    status_label = {"docked": "부산항 정박", "sailing": "항해 중", "returning": "귀항 중"}.get(vphase, vphase)
+    if vphase == "sailing":
+        remaining = max(0, int(vessel.get("total", 0)) - int(vessel.get("pos", 0)))
+        remaining_label = f"목적지까지 {remaining}틱"
+    elif vphase == "returning":
+        remaining = max(0, int(vessel.get("total", 0)) - int(vessel.get("pos", 0)))
+        remaining_label = f"부산까지 {remaining}틱"
+    else:
+        remaining_label = "—"
+    status_rows.append({"이름": vessel.get("name", "선박"), "선종": vessel.get("type", "—"),
+                        "상태": status_label, "목적지": vessel.get("dest") or "부산", "남은 시간": remaining_label})
+st.dataframe(status_rows, hide_index=True, use_container_width=True)
+
 st.subheader("실제 지도와 항로")
 st.caption("항해 중에는 지도 배경과 항구 핀을 유지하고 선박만 이동합니다. 목적지 선택은 정박 중 지도에서 할 수 있습니다.")
 
-if st.session_state.phase in ("sailing", "returning") and st.session_state.dest in SEA_ROUTES:
-    # 단일 main.py 안에 지도 HTML/JavaScript를 포함한다. 별도 파일은 필요 없다.
+travelling_ships = active_ships()
+if travelling_ships:
+    # 기존 Leaflet iframe/JS 이동 방식을 유지하되, 설정을 여러 선박 배열로 확장한다.
     map_config = {
-        "ports": [
-            {"name": name, "lat": coords[0], "lon": coords[1]}
-            for name, coords in PORT_COORDS.items()
+        "ports": [{"name": name, "lat": coords[0], "lon": coords[1]} for name, coords in PORT_COORDS.items()],
+        "ships": [
+            {"id": ship["id"], "name": ship["name"], "type": ship["type"],
+             "route": SEA_ROUTES.get(ship.get("dest"), [PORT_COORDS["부산"]]),
+             "destination": ship.get("dest"), "phase": ship.get("phase"),
+             "pos": int(ship.get("pos", 0)), "total": max(1, int(ship.get("total", 1))),
+             "paused": bool(st.session_state.event_pending)}
+            for ship in travelling_ships
         ],
-        "route": SEA_ROUTES[st.session_state.dest],
-        "destination": st.session_state.dest,
-        "phase": st.session_state.phase,
-        "pos": int(st.session_state.pos),
-        "total": max(1, int(st.session_state.total)),
         "paused": bool(st.session_state.event_pending),
     }
     config_json = json.dumps(map_config, ensure_ascii=False).replace("</", "<\\/")
@@ -943,30 +1137,47 @@ html,body{margin:0;padding:0;background:#071521;font-family:sans-serif}#map{heig
    L.circleMarker([p.lat,p.lon],{radius:b?8:7,color:b?'#ff6b6b':'#b68d30',weight:2,fillColor:b?'#ff6b6b':'#f2c14e',fillOpacity:.95}).addTo(portsLayer)
     .bindTooltip((b?'⚓ ':'📍 ')+p.name,{permanent:true,direction:'top',className:'port-label',offset:[0,-5]});
  });
- const route=C.route||[];
- const routeLine=L.polyline(route,{color:'#42c7d9',weight:4,opacity:.95}).addTo(map);
- const travelled=L.polyline([],{color:'#f2c14e',weight:5,opacity:.95}).addTo(map);
  const shipIcon=L.divIcon({className:'ship-icon-wrap',html:'<div class="ship-icon">🚢</div>',iconSize:[34,34],iconAnchor:[17,17]});
- const ship=L.marker(route[0]||[35.1796,129.0756],{icon:shipIcon,interactive:false,zIndexOffset:1000}).addTo(map);
- if(route.length>1) map.fitBounds(L.latLngBounds(route),{padding:[35,35],maxZoom:5,animate:false});
- function pointAt(f){
-   if(route.length<2)return route[0]||[35.1796,129.0756];
+ const moving=[];
+ function pointAt(route,f){
+   if(!route||route.length<2)return (route&&route[0])||[35.1796,129.0756];
    const lens=[];let sum=0;for(let i=0;i<route.length-1;i++){const d=Math.hypot(route[i+1][0]-route[i][0],route[i+1][1]-route[i][1]);lens.push(d);sum+=d;}
    let target=Math.max(0,Math.min(1,f))*sum;
    for(let i=0;i<lens.length;i++){if(target<=lens[i]||i===lens.length-1){const t=lens[i]?target/lens[i]:0;return [route[i][0]+(route[i+1][0]-route[i][0])*t,route[i][1]+(route[i+1][1]-route[i][1])*t];}target-=lens[i];}
    return route[route.length-1];
  }
- function partialPath(progress,returning){
-   const f=returning?1-progress:progress;const p=pointAt(f);
-   if(!returning){const out=[route[0]];for(let i=1;i<route.length;i++){const a=route[i-1],b=route[i];const fa=distanceFraction(i-1),fb=distanceFraction(i);if(f>=fb)out.push(b);else if(f>fa){out.push(p);break;}else break;}if(out.length===1&&f>0)out.push(p);else if(out[out.length-1]!==p && f<1)out.push(p);return out;}
-   const out=[p];for(let i=route.length-2;i>=0;i--){if(distanceFraction(i)<f)out.push(route[i]);}return out;
+ function partialPath(route,progress,returning){
+   if(!route||route.length<2)return route||[];
+   const f=returning?1-progress:progress;const p=pointAt(route,f);const out=[route[0]];
+   const lens=[];let sum=0;for(let i=0;i<route.length-1;i++){const d=Math.hypot(route[i+1][0]-route[i][0],route[i+1][1]-route[i][1]);lens.push(d);sum+=d;}
+   let target=f*sum, travelled=0;
+   for(let i=0;i<lens.length;i++){if(target<=travelled+lens[i]){out.push(p);break;}out.push(route[i+1]);travelled+=lens[i];}
+   if(returning){const back=[p];let accumulated=0;for(let i=route.length-2;i>=0;i--){accumulated+=lens[i];if(accumulated<=(1-f)*sum)back.push(route[i]);}return back;}
+   return out;
  }
- const fractions=[0];let totalLen=0;for(let i=0;i<route.length-1;i++){totalLen+=Math.hypot(route[i+1][0]-route[i][0],route[i+1][1]-route[i][1]);fractions.push(totalLen);}
- function distanceFraction(i){return totalLen?fractions[i]/totalLen:0;}
- const total=Math.max(1,Number(C.total)||1);let base= Math.max(0,Math.min(total,Number(C.pos)||0));let started=performance.now();let paused=!!C.paused;
- function draw(progress){const f=C.phase==='returning'?1-progress:progress;ship.setLatLng(pointAt(f));travelled.setLatLngs(partialPath(progress,C.phase==='returning'));}
- function tick(now){let progress=base/total;if(!paused)progress=Math.min(1,(base+(now-started)/1000)/total);draw(progress);if(!paused&&progress<1)requestAnimationFrame(tick);}
- draw(base/total);if(!paused)requestAnimationFrame(tick);
+ (C.ships||[]).forEach((S,index)=>{
+   const route=S.route||[[35.1796,129.0756]];
+   if(route.length>1)L.polyline(route,{color:['#42c7d9','#a78bfa','#fb923c','#34d399','#f472b6'][index%5],weight:3,opacity:.9}).addTo(map);
+   const travelled=L.polyline([],{color:'#f2c14e',weight:4,opacity:.95}).addTo(map);
+   const ship=L.marker(route[0]||[35.1796,129.0756],{icon:shipIcon,interactive:false,zIndexOffset:1000+index}).addTo(map);
+   ship.bindTooltip(S.name+' · '+S.type,{permanent:true,direction:'top',offset:[0,-15]});
+   moving.push({S,route,ship,travelled,base:Math.max(0,Math.min(Math.max(1,Number(S.total)||1),Number(S.pos)||0)),total:Math.max(1,Number(S.total)||1),started:performance.now(),paused:!!C.paused});
+ });
+ const allPoints=[];(C.ships||[]).forEach(S=>(S.route||[]).forEach(p=>allPoints.push(p)));
+ if(allPoints.length>1)map.fitBounds(L.latLngBounds(allPoints),{padding:[35,35],maxZoom:5,animate:false});
+ function tick(now){
+   let again=false;
+   moving.forEach(M=>{
+     let progress=M.base/M.total;
+     if(!M.paused)progress=Math.min(1,(M.base+(now-M.started)/1000)/M.total);
+     const f=M.S.phase==='returning'?1-progress:progress;
+     M.ship.setLatLng(pointAt(M.route,f));
+     M.travelled.setLatLngs(partialPath(M.route,progress,M.S.phase==='returning'));
+     if(!M.paused&&progress<1)again=true;
+   });
+   if(again)requestAnimationFrame(tick);
+ }
+ tick(performance.now());
  setTimeout(()=>map.invalidateSize(),80);
 })();
 </script></body></html>'''.replace("__CONFIG__", config_json)
@@ -989,19 +1200,20 @@ else:
     except (AttributeError, TypeError, KeyError, ValueError):
         pass
 
-if st.session_state.phase in ("sailing", "returning") and st.session_state.weather_note:
-    st.info(f"🌦️ 해상 기상: {st.session_state.weather} — {st.session_state.weather_note}")
-if st.session_state.phase == "sailing":
-    st.write(f"🚢 항해 중 · {st.session_state.dest} 방향 · {st.session_state.pos}/{st.session_state.total}초")
-elif st.session_state.phase == "returning":
-    st.write(f"↩️ 부산으로 귀항 중 · {st.session_state.pos}/{st.session_state.total}초")
+current_ship = selected_ship()
+if current_ship and current_ship.get("phase") in ("sailing", "returning") and current_ship.get("weather_note"):
+    st.info(f"🌦️ {current_ship['name']} 기상: {current_ship['weather']} — {current_ship['weather_note']}")
+if current_ship and current_ship.get("phase") == "sailing":
+    st.write(f"🚢 {current_ship['name']} 항해 중 · {current_ship.get('dest')} 방향 · {current_ship.get('pos', 0)}/{current_ship.get('total', 0)}틱")
+elif current_ship and current_ship.get("phase") == "returning":
+    st.write(f"↩️ {current_ship['name']} 부산으로 귀항 중 · {current_ship.get('pos', 0)}/{current_ship.get('total', 0)}틱")
 else:
-    st.write("⚓ 부산항 정박 중 — 목적지를 선택해 출항하세요.")
+    st.write("⚓ 선택한 선박은 부산항 정박 중 — 목적지를 선택해 출항하세요.")
 
 
 st.subheader("항구 정보")
 selected_port = st.session_state.selected_port
-can_choose = st.session_state.phase == "docked"
+can_choose = bool(current_ship and current_ship.get("phase") == "docked" and st.session_state.phase != "ended")
 ship = selected_ship()
 ship_type = ship["type"] if ship else "기본 화물선"
 available_special_ports = [
@@ -1055,6 +1267,14 @@ if selected_port and selected_port in available_destinations:
     if st.button(departure_label, key="selected_port_depart", disabled=not can_choose, use_container_width=True):
         start_voyage(selected_port)
         st.rerun()
+    if active_ships() and can_choose and len(available_destinations) > 1:
+        st.caption("다른 선박이 운항 중이므로 지도는 이동 지도를 유지합니다. 아래에서 이 선박의 목적지를 바꿀 수 있습니다.")
+        alternate_port = st.selectbox("다른 목적지 선택", available_destinations,
+                                      index=(available_destinations.index(selected_port) if selected_port in available_destinations else 0),
+                                      key="alternate_destination_while_sailing")
+        if st.button("선택한 목적지 정보 보기", key="alternate_destination_pick", use_container_width=True):
+            st.session_state.selected_port = alternate_port
+            st.rerun()
 else:
     st.info("지도에서 목적지 핀을 선택하거나 아래 목록에서 현재 선박이 이용할 수 있는 목적지를 선택하세요.")
     if available_destinations:
@@ -1066,13 +1286,13 @@ else:
         st.warning("이 선박이 이용할 수 있는 특수 목적지가 없습니다.")
 
 if 4 in st.session_state.bought_tr:
-    st.toggle("자동 운항", key="auto_on", disabled=st.session_state.phase != "docked",
-              help="항해 사이에 다음 항로를 직접 출발시킬 수 있습니다.")
+    st.toggle("자동 운항", key="auto_on", disabled=(not current_ship or current_ship.get("phase") != "docked" or st.session_state.phase == "ended"),
+              help="선택한 정박 선박을 자동 항로로 출발시킵니다.")
     if st.session_state.auto_on:
         next_auto_dest = AUTO_ROUTE[st.session_state.auto_idx % len(AUTO_ROUTE)]
         st.caption(f"다음 자동 항로: {next_auto_dest}")
         st.button("▶ 다음 자동 항해 출발", key="start_auto_voyage",
-                  disabled=st.session_state.phase != "docked", use_container_width=True,
+                  disabled=(not current_ship or current_ship.get("phase") != "docked" or st.session_state.phase == "ended"), use_container_width=True,
                   on_click=start_auto_voyage)
 
 if st.session_state.event_log:
@@ -1096,7 +1316,7 @@ with eq_tab:
                 stage = tech["stages"][level]
                 st.button(
                     f"{stage['label']} 연구하기", key=f"research_{tech['id']}",
-                    disabled=(st.session_state.phase != "docked" or st.session_state.money < stage["price"]),
+                    disabled=(st.session_state.phase == "ended" or st.session_state.money < stage["price"]),
                     use_container_width=True, on_click=research_next_stage, args=(tech["id"],)
                 )
             else:
@@ -1117,7 +1337,7 @@ with tr_tab:
                 st.button("구매 완료", key=f"tr_done_{item['id']}", disabled=True, use_container_width=True)
             else:
                 st.button("구매", key=f"tr_{item['id']}",
-                          disabled=(st.session_state.phase != "docked" or not enough_money),
+                          disabled=(st.session_state.phase == "ended" or not enough_money),
                           use_container_width=True, on_click=buy_transport, args=(item["id"],))
         with row[2]:
             st.write(money_label(item["price"]))
