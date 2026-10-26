@@ -1307,10 +1307,12 @@ with info_col:
         st.write("⚓ 선택한 선박은 부산항 정박 중 — 목적지를 선택해 출항하세요.")
 
 
-    st.subheader("항구 정보")
+    # 참고 이미지처럼 오른쪽에 운항 명령 카드를 구성한다. 게임 로직과 지도는 변경하지 않는다.
+    st.markdown("<div style='letter-spacing:2px;font-size:11px;color:#8a94a6;font-weight:700'>VOYAGE CONTROL</div>", unsafe_allow_html=True)
+    st.markdown("## 운항 명령")
     selected_port = st.session_state.selected_port
-    can_choose = bool(current_ship and current_ship.get("status", ship.get("phase", "docked")) == "docked" and st.session_state.phase != "ended")
     ship = selected_ship()
+    can_choose = bool(ship and ship.get("status", ship.get("phase", "docked")) == "docked" and st.session_state.phase != "ended")
     ship_type = ship["type"] if ship else "기본 화물선"
     available_special_ports = [
         name for name in st.session_state.unlocked_special_ports
@@ -1321,65 +1323,79 @@ with info_col:
         available_destinations += available_special_ports
     if ship_type == "어선":
         available_destinations = list(FISHING_GROUNDS)
-    if selected_port and selected_port in available_destinations:
-        destination = next((d for d in DESTINATIONS if d["name"] == selected_port), None)
-        if destination is None:
-            destination = SPECIAL_PORTS.get(selected_port) or FISHING_GROUNDS.get(selected_port)
-        years = actual_years(selected_port)
-        income = actual_income(selected_port)
-        features = {
-            "도쿄": "일본의 주요 국제 무역항입니다.",
-            "상하이": "중국의 주요 국제 무역항이자 대형 컨테이너 항만입니다.",
-            "싱가포르": "MPA Green Ship Programme은 요건을 충족하고 사전 등록한 선박에 연료·기술 조건에 따라 항만 요금 감면을 제공합니다. 게임에서는 기존 엔진 업그레이드를 자격의 단순화된 대리 기준으로 사용합니다.",
-            "로테르담": "항만은 Green Award 및 환경 데이터·선박별 조건에 따른 인센티브를 운영합니다. 실제 해상 운항 선박의 할인은 선종과 요금 구성요소 등 별도 자격이 필요하므로, 게임은 친환경 설비와 배출량을 이용한 단순화 규칙을 사용합니다.",
-            "타이베이": "대만 북부의 주요 항만입니다.",
-            "홍콩": "아시아의 주요 항만이자 환적 거점입니다.",
-            "로스앤젤레스": "Port of Los Angeles의 ESI 프로그램은 등록된 선박의 ESI 점수 구간에 따라 입항별 인센티브를 제공합니다. 게임은 실제 ESI 점수를 계산하지 않고 배출량을 시연용 대체 기준으로 사용합니다.",
-        }
-        if selected_port in [d["name"] for d in DESTINATIONS]:
-            current_fee, current_benefit = discounted_port_fee(selected_port)
-        else:
-            current_fee = int(destination.get("fee", 0))
-            current_benefit = {"discount_percent": 0, "arrival_bonus": 0, "note": destination.get("description", "게임용 목적지")}
-        suffix = " 어장" if selected_port in FISHING_GROUNDS else " 항구"
-        st.markdown(f"### 📍 {selected_port}{suffix}")
-        info_cols = st.columns(3)
-        info_cols[0].metric("예상 항해 기간", f"{years}년")
-        info_cols[1].metric("예상 운임", money_label(income))
-        info_cols[2].metric("적용 정박비", money_label(current_fee),
-                            delta=(f"{current_benefit['discount_percent']}% 감면" if current_benefit["discount_percent"] else None),
-                            delta_color="normal")
-        st.write(features.get(selected_port, destination.get("description", "게임용 목적지입니다.")))
-        st.info(f"**게임 내 혜택:** {current_benefit['note'] or '현재 적용 가능한 별도 혜택 없음'}")
-        official_sources = {
-            "싱가포르": "https://www.mpa.gov.sg/finance-e-services/tariff-fees-and-charges/ocean-going-vessels/port-dues-concessions",
-            "로테르담": "https://www.portofrotterdam.com/en/sea-shipping/seaport-dues/green-award-discount",
-            "로스앤젤레스": "https://portoflosangeles.org/environment/air-quality/environmental-ship-index",
-        }
-        if selected_port in official_sources:
-            st.markdown(f"[항만 공식 출처 보기]({official_sources[selected_port]})")
-        st.caption(f"기본 게임 정박비 {money_label(destination['fee'])} · 혜택 적용 후 정박비 {money_label(current_fee)}. 부산항 정박비 {money_label(1 * MONEY_SCALE)}는 별도이며 운임은 부산 귀항 후 지급됩니다. 실제 항만 요금과 자격 조건을 그대로 계산하는 시스템이 아니라, 공식 제도를 참고해 단순화한 게임 규칙입니다.")
-        departure_label = f"🎣 {selected_port} 조업 출항" if selected_port in FISHING_GROUNDS else f"🚢 {selected_port}로 출항"
-        if st.button(departure_label, key="selected_port_depart", disabled=not can_choose, use_container_width=True):
-            start_voyage(selected_port)
-            st.rerun()
-        if active_ships() and can_choose and len(available_destinations) > 1:
-            st.caption("다른 선박이 운항 중이므로 지도는 이동 지도를 유지합니다. 아래에서 이 선박의 목적지를 바꿀 수 있습니다.")
-            alternate_port = st.selectbox("다른 목적지 선택", available_destinations,
-                                          index=(available_destinations.index(selected_port) if selected_port in available_destinations else 0),
-                                          key="alternate_destination_while_sailing")
-            if st.button("선택한 목적지 정보 보기", key="alternate_destination_pick", use_container_width=True):
-                st.session_state.selected_port = alternate_port
+
+    with st.container(border=True):
+        st.caption("출발항")
+        st.markdown("### 🔵 부산 신항  ⌄")
+        st.caption("KR PUS · 대한민국")
+        st.markdown("<div style='height:1px;background:#e5e7eb;margin:12px 0'></div>", unsafe_allow_html=True)
+        st.caption("목적항")
+        if selected_port and selected_port in available_destinations:
+            destination = next((d for d in DESTINATIONS if d["name"] == selected_port), None)
+            if destination is None:
+                destination = SPECIAL_PORTS.get(selected_port) or FISHING_GROUNDS.get(selected_port)
+            years = actual_years(selected_port)
+            income = actual_income(selected_port)
+            features = {
+                "도쿄": "일본의 주요 국제 무역항입니다.",
+                "상하이": "중국의 주요 국제 무역항이자 대형 컨테이너 항만입니다.",
+                "싱가포르": "MPA Green Ship Programme은 요건을 충족하고 사전 등록한 선박에 연료·기술 조건에 따라 항만 요금 감면을 제공합니다. 게임에서는 기존 엔진 업그레이드를 자격의 단순화된 대리 기준으로 사용합니다.",
+                "로테르담": "항만은 Green Award 및 환경 데이터·선박별 조건에 따른 인센티브를 운영합니다. 게임은 실제 요금 자격을 단순화해 적용합니다.",
+                "타이베이": "대만 북부의 주요 항만입니다.",
+                "홍콩": "아시아의 주요 항만이자 환적 거점입니다.",
+                "로스앤젤레스": "Port of Los Angeles의 ESI 프로그램은 등록된 선박의 ESI 점수 구간에 따라 입항별 인센티브를 제공합니다. 게임은 이를 단순화해 적용합니다.",
+            }
+            if selected_port in [d["name"] for d in DESTINATIONS]:
+                current_fee, current_benefit = discounted_port_fee(selected_port)
+            else:
+                current_fee = int(destination.get("fee", 0))
+                current_benefit = {"discount_percent": 0, "arrival_bonus": 0, "note": destination.get("description", "게임용 목적지")}
+            suffix = " 어장" if selected_port in FISHING_GROUNDS else " 항구"
+            st.markdown(f"### 📍 {selected_port}{suffix}  ⌄")
+            st.caption(destination.get("code", "목적지 · 항해 경로"))
+            st.markdown("<div style='height:1px;background:#e5e7eb;margin:12px 0'></div>", unsafe_allow_html=True)
+            st.caption("배정 선박")
+            st.markdown(f"### 🚢 {ship.get('name', '선박 미배정') if ship else '선박 미배정'}")
+            st.caption(f"{ship_type} · 부산 귀항 후 운임 정산")
+            st.markdown("<div style='height:1px;background:#e5e7eb;margin:12px 0'></div>", unsafe_allow_html=True)
+            estimate_cols = st.columns(2)
+            estimate_cols[0].caption("◷  예상 운항")
+            estimate_cols[0].markdown(f"**{years}년**")
+            estimate_cols[1].caption("₩  예상 수익")
+            estimate_cols[1].markdown(f"**{money_label(income)}**")
+            st.markdown("<div style='height:1px;background:#e5e7eb;margin:12px 0'></div>", unsafe_allow_html=True)
+            st.caption(f"⚓ 적용 정박비  **{money_label(current_fee)}**" + (f" · {current_benefit['discount_percent']}% 감면" if current_benefit["discount_percent"] else ""))
+            st.write(features.get(selected_port, destination.get("description", "게임용 목적지입니다.")))
+            st.info(f"**게임 내 혜택:** {current_benefit['note'] or '현재 적용 가능한 별도 혜택 없음'}")
+            official_sources = {
+                "싱가포르": "https://www.mpa.gov.sg/finance-e-services/tariff-fees-and-charges/ocean-going-vessels/port-dues-concessions",
+                "로테르담": "https://www.portofrotterdam.com/en/sea-shipping/seaport-dues/green-award-discount",
+                "로스앤젤레스": "https://portoflosangeles.org/environment/air-quality/environmental-ship-index",
+            }
+            if selected_port in official_sources:
+                st.markdown(f"[항만 공식 출처 보기]({official_sources[selected_port]})")
+            st.caption(f"기본 정박비 {money_label(destination['fee'])} · 혜택 적용 후 {money_label(current_fee)}. 부산항 정박비는 별도이며 운임은 부산 귀항 후 지급됩니다. 실제 항만 요금과 자격 조건을 참고해 단순화한 게임 규칙입니다.")
+            departure_label = f"🎣 {selected_port} 조업 출항" if selected_port in FISHING_GROUNDS else "🚢 출항 명령  ›"
+            if st.button(departure_label, key="selected_port_depart", disabled=not can_choose, use_container_width=True, type="primary"):
+                start_voyage(selected_port)
                 st.rerun()
-    else:
-        st.info("지도에서 목적지 핀을 선택하거나 아래 목록에서 현재 선박이 이용할 수 있는 목적지를 선택하세요.")
-        if available_destinations:
-            manual_port = st.selectbox("목적항 / 어장 선택", available_destinations, key="manual_destination")
-            if st.button("목적지 정보 보기", key="manual_destination_pick", disabled=not can_choose, use_container_width=True):
-                st.session_state.selected_port = manual_port
-                st.rerun()
+            if active_ships() and can_choose and len(available_destinations) > 1:
+                st.caption("다른 선박이 운항 중이므로 지도는 이동 지도를 유지합니다. 아래에서 이 선박의 목적지를 바꿀 수 있습니다.")
+                alternate_port = st.selectbox("다른 목적지 선택", available_destinations,
+                                              index=(available_destinations.index(selected_port) if selected_port in available_destinations else 0),
+                                              key="alternate_destination_while_sailing")
+                if st.button("선택한 목적지 정보 보기", key="alternate_destination_pick", use_container_width=True):
+                    st.session_state.selected_port = alternate_port
+                    st.rerun()
         else:
-            st.warning("이 선박이 이용할 수 있는 특수 목적지가 없습니다.")
+            st.info("지도에서 목적지 핀을 선택하거나 아래 목록에서 목적지를 선택하세요.")
+            if available_destinations:
+                manual_port = st.selectbox("목적항 / 어장 선택", available_destinations, key="manual_destination")
+                if st.button("목적지 정보 보기", key="manual_destination_pick", disabled=not can_choose, use_container_width=True):
+                    st.session_state.selected_port = manual_port
+                    st.rerun()
+            else:
+                st.warning("이 선박이 이용할 수 있는 특수 목적지가 없습니다.")
 
     if 4 in st.session_state.bought_tr:
         st.toggle("자동 운항", key="auto_on", disabled=(not current_ship or current_ship.get("status", ship.get("phase", "docked")) != "docked" or st.session_state.phase == "ended"),
