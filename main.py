@@ -344,6 +344,7 @@ def ship_price(ship_type):
 
 def buy_ship(ship_type, ship_name):
     ship_name = (ship_name or "").strip()
+    st.session_state.purchase_name_error = ""
     if st.session_state.phase == "ended":
         return
     if len(st.session_state.fleet) >= MAX_FLEET_SIZE:
@@ -353,7 +354,7 @@ def buy_ship(ship_type, ship_name):
         st.session_state.msg = "선박 이름을 입력해 주세요."
         return
     if any(s["name"].casefold() == ship_name.casefold() for s in st.session_state.fleet):
-        st.session_state.msg = "이미 사용 중인 선박 이름입니다."
+        st.session_state.purchase_name_error = "이미 사용 중인 선박 이름입니다."
         return
     price = ship_price(ship_type)
     if st.session_state.money < price:
@@ -1191,12 +1192,6 @@ with st.expander("🏢 회사 및 선단 관리", expanded=True):
     for ship in st.session_state.fleet:
         st.write(f"🚢 **{ship['name']}** · {ship['type']} · 구매가 {money_label(ship['price'])} · 상태: { {'docked':'부산항 정박','outbound':'항해 중','returning':'귀항 중'}.get(ship.get('status','docked'),'정박') }")
     if st.session_state.fleet:
-        st.selectbox(
-            "관리할 선박",
-            options=[ship["id"] for ship in st.session_state.fleet],
-            format_func=lambda sid: next(s["name"] + " · " + s["type"] for s in st.session_state.fleet if s["id"] == sid),
-            key="selected_ship_id",
-        )
         managed = selected_ship()
         if managed:
             with st.form(f"rename_ship_form_{managed['id']}"):
@@ -1419,6 +1414,13 @@ with info_col:
     # 참고 이미지처럼 오른쪽에 운항 명령 카드를 구성한다. 게임 로직과 지도는 변경하지 않는다.
     st.markdown("<div style='letter-spacing:2px;font-size:11px;color:#8a94a6;font-weight:700'>VOYAGE CONTROL</div>", unsafe_allow_html=True)
     st.markdown("## 운항 명령")
+    if st.session_state.fleet:
+        st.selectbox(
+            "배정 선박",
+            options=[item["id"] for item in st.session_state.fleet],
+            format_func=lambda sid: next(item["name"] + " · " + item["type"] for item in st.session_state.fleet if item["id"] == sid),
+            key="selected_ship_id",
+        )
     ship = selected_ship()
     if ship and not st.session_state.selected_port and ship.get("dest"):
         st.session_state.selected_port = ship.get("dest")
@@ -1505,15 +1507,6 @@ with info_col:
                     and ship.get("waiting_for_turn", False)):
                 if st.button("↩ 출항 취소 · 목적지 재설정", key="cancel_departure_button", use_container_width=True):
                     cancel_departure(ship)
-                    st.rerun()
-            if active_ships() and can_choose and len(available_destinations) > 1:
-                st.caption("다른 선박이 운항 중이므로 지도는 이동 지도를 유지합니다. 아래에서 이 선박의 목적지를 바꿀 수 있습니다.")
-                alternate_port = st.selectbox("다른 목적지 선택", available_destinations,
-                                              index=(available_destinations.index(selected_port) if selected_port in available_destinations else 0),
-                                              key="alternate_destination_while_sailing")
-                if st.button("선택한 목적지 정보 보기", key="alternate_destination_pick", use_container_width=True):
-                    if assign_destination(alternate_port, ship):
-                        st.session_state.msg = f"{ship['name']}의 목적지가 {alternate_port}(으)로 설정되었습니다."
                     st.rerun()
         else:
             pending_ship = selected_ship()
@@ -1602,4 +1595,6 @@ with ship_tab:
             if submitted:
                 buy_ship(new_type, new_name)
                 st.rerun()
+        if st.session_state.get("purchase_name_error"):
+            st.error(st.session_state.purchase_name_error)
 
