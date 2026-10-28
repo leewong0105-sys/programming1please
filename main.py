@@ -344,21 +344,22 @@ def ship_price(ship_type):
 
 def buy_ship(ship_type, ship_name):
     ship_name = (ship_name or "").strip()
-    st.session_state.purchase_name_error = ""
+    st.session_state.purchase_feedback = ""
+    st.session_state.purchase_feedback_type = "error"
     if st.session_state.phase == "ended":
         return
     if len(st.session_state.fleet) >= MAX_FLEET_SIZE:
-        st.session_state.msg = f"보유 가능한 선박은 최대 {MAX_FLEET_SIZE}척입니다."
+        st.session_state.purchase_feedback = f"보유 가능한 선박은 최대 {MAX_FLEET_SIZE}척입니다."
         return
     if not ship_name:
-        st.session_state.msg = "선박 이름을 입력해 주세요."
+        st.session_state.purchase_feedback = "선박 이름을 입력해 주세요."
         return
     if any(s["name"].casefold() == ship_name.casefold() for s in st.session_state.fleet):
-        st.session_state.purchase_name_error = "이미 사용 중인 선박 이름입니다."
+        st.session_state.purchase_feedback = "이미 사용 중인 선박 이름입니다."
         return
     price = ship_price(ship_type)
     if st.session_state.money < price:
-        st.session_state.msg = "선박을 구매할 자금이 부족합니다."
+        st.session_state.purchase_feedback = "선박을 구매할 자금이 부족합니다."
         return
     ship = new_ship_state(st.session_state.next_ship_id, ship_name, ship_type, price)
     st.session_state.money -= price
@@ -372,7 +373,8 @@ def buy_ship(ship_type, ship_name):
             st.session_state.unlocked_special_ports +
             [name for name, data in SPECIAL_PORTS.items() if ship_type in data["ship_types"]]
         ))
-    st.session_state.msg = f"{ship_name} 구매 완료! ({ship_type})"
+    st.session_state.purchase_feedback = f"{ship_name} 구매 완료! ({ship_type})"
+    st.session_state.purchase_feedback_type = "success"
     add_history()
 
 
@@ -1394,9 +1396,12 @@ with map_col:
             st.session_state.confirm_empty_destination_turn = True
             advance_turn()
             st.rerun()
-    st.button("다음 해로 ▶", key="advance_turn_button", type="primary",
-               disabled=(st.session_state.phase == "ended"),
-               use_container_width=True, on_click=advance_turn)
+    # 목적지 미배정 경고가 표시된 동안에는 확인 버튼만 보여 준다.
+    # 진행이 완료되어 경고 상태가 해제되면 일반적인 다음 해로 버튼이 다시 나타난다.
+    if not st.session_state.get("show_empty_destination_warning", False):
+        st.button("다음 해로 ▶", key="advance_turn_button", type="primary",
+                   disabled=(st.session_state.phase == "ended"),
+                   use_container_width=True, on_click=advance_turn)
     st.caption(f"버튼 한 번에 {TURN_YEARS}년 진행합니다. 항해 준비 중에는 시간이 흐르지 않습니다.")
 
 with info_col:
@@ -1595,6 +1600,11 @@ with ship_tab:
             if submitted:
                 buy_ship(new_type, new_name)
                 st.rerun()
-        if st.session_state.get("purchase_name_error"):
-            st.error(st.session_state.purchase_name_error)
+        # 선박 구매와 관련된 모든 안내는 구매 버튼 바로 아래에 표시한다.
+        purchase_feedback = st.session_state.get("purchase_feedback", "")
+        if purchase_feedback:
+            if st.session_state.get("purchase_feedback_type") == "success":
+                st.success(purchase_feedback)
+            else:
+                st.error(purchase_feedback)
 
