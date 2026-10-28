@@ -230,6 +230,7 @@ def init():
         "result": None,
         "fail_reason": "",
         "msg": "",
+        "return_feedback": "",
         "balloons_shown": False,
         "weather": None,
         "voyage_income": 0,
@@ -275,6 +276,7 @@ def reset_game():
         "result": None,
         "fail_reason": "",
         "msg": "",
+        "return_feedback": "",
         "balloons_shown": False,
         "weather": None,
         "voyage_income": 0,
@@ -721,7 +723,7 @@ def settle_return(ship):
     sync_ship_map_progress(ship)
     if st.session_state.auto_on:
         st.session_state.auto_idx = (st.session_state.auto_idx + 1) % len(AUTO_ROUTE)
-    st.session_state.msg = f"{ship_name} 부산항 귀항 완료! 운임 {money_label(income)} 지급, 부산항 정박비 {money_label(busan_fee)} 차감."
+    st.session_state.return_feedback = f"{ship_name} 부산항 귀항 완료! 운임 {money_label(income)} 지급, 부산항 정박비 {money_label(busan_fee)} 차감."
 
 
 def finish_return(ship):
@@ -952,11 +954,12 @@ def make_route_map():
         lat=[PORT_COORDS[name][0] for name in pin_names],
         lon=[PORT_COORDS[name][1] for name in pin_names],
         mode="markers+text",
-        marker={"size": [16 if name == "부산" else 20 for name in pin_names],
-                "color": ["#ff6b6b" if name == "부산" else "#e2bd67" for name in pin_names]},
+        marker={"size": [19 if name == "부산" else 23 for name in pin_names],
+                "color": ["#ff6b6b" if name == "부산" else "#f2c14e" for name in pin_names],
+                "line": {"color": "#172033", "width": 2}},
         text=["⚓ 부산" if name == "부산" else f"📍 {name}" for name in pin_names],
         textposition="top right",
-        textfont={"color": "#ffffff", "size": 12},
+        textfont={"color": "#071521", "size": 15},
         customdata=pin_names,
         name="항구 핀",
         hovertemplate="%{customdata}<br>클릭해서 항구 정보 보기<extra></extra>",
@@ -1091,6 +1094,7 @@ st.caption("선단 운영 현황을 확인하고, 수익과 탄소 감축 기술
 
 def advance_turn():
     """목적지 미배정 경고를 거친 뒤 실제로 1년 진행한다."""
+    st.session_state.return_feedback = ""
     if st.session_state.phase == "ended":
         return
     if not st.session_state.get("show_empty_destination_warning", False):
@@ -1192,7 +1196,12 @@ with st.expander("🏢 회사 및 선단 관리", expanded=True):
     )
     st.markdown(f"**보유 선박 ({len(st.session_state.fleet)}/{MAX_FLEET_SIZE})**")
     for ship in st.session_state.fleet:
-        st.write(f"🚢 **{ship['name']}** · {ship['type']} · 구매가 {money_label(ship['price'])} · 상태: { {'docked':'부산항 정박','outbound':'항해 중','returning':'귀항 중'}.get(ship.get('status','docked'),'정박') }")
+        ship_status = ship.get("status", "docked")
+        if ship_status == "docked" and ship.get("dest"):
+            ship_status_label = "출항 대기 중"
+        else:
+            ship_status_label = {"docked": "부산항 정박", "outbound": "항해 중", "returning": "귀항 중"}.get(ship_status, "정박")
+        st.write(f"🚢 **{ship['name']}** · {ship['type']} · 구매가 {money_label(ship['price'])} · 상태: {ship_status_label}")
     if st.session_state.fleet:
         managed = selected_ship()
         if managed:
@@ -1239,7 +1248,10 @@ st.subheader("선박 상태 현황")
 status_rows = []
 for vessel in st.session_state.fleet:
     vphase = vessel.get("status", "docked")
-    status_label = {"docked": "부산항 정박", "outbound": "항해 중", "returning": "귀항 중"}.get(vphase, vphase)
+    if vphase == "docked" and vessel.get("dest"):
+        status_label = "출항 대기 중"
+    else:
+        status_label = {"docked": "부산항 정박", "outbound": "항해 중", "returning": "귀항 중"}.get(vphase, vphase)
     if vphase == "outbound":
         remaining_label = f"목적지까지 {max(0, int(vessel.get('years_left', 0)))}년"
     elif vphase == "returning":
@@ -1402,6 +1414,8 @@ with map_col:
         st.button("다음 해로 ▶", key="advance_turn_button", type="primary",
                    disabled=(st.session_state.phase == "ended"),
                    use_container_width=True, on_click=advance_turn)
+    if st.session_state.get("return_feedback"):
+        st.success(st.session_state.return_feedback)
     st.caption(f"버튼 한 번에 {TURN_YEARS}년 진행합니다. 항해 준비 중에는 시간이 흐르지 않습니다.")
 
 with info_col:
@@ -1589,14 +1603,14 @@ with tr_tab:
             st.write(money_label(item["price"]))
         st.divider()
 with ship_tab:
-    st.caption(f"새 선박을 구매하면 회사 선단에 추가됩니다. 현재 {len(st.session_state.fleet)}/{MAX_FLEET_SIZE}척 보유 중이며, 최대 {MAX_FLEET_SIZE}척까지 구매할 수 있습니다. 구매 후 운항할 선박을 위의 선단 관리에서 선택할 수 있습니다.")
+    st.caption(f"새 선박을 구매하면 회사 선단에 추가됩니다. 현재 {len(st.session_state.fleet)}/{MAX_FLEET_SIZE}척 보유 중이며, 최대 {MAX_FLEET_SIZE}척까지 구매할 수 있습니다. 운항할 선박은 운항 명령 카드의 배정 선박에서 선택할 수 있습니다.")
     with st.container(border=True):
         st.markdown("### 🚢 신규 선박 구매")
         with st.form("buy_ship_form", clear_on_submit=True):
             new_type = st.selectbox("선박 종류", list(SHIP_TYPES.keys()))
             new_name = st.text_input("선박 이름", placeholder="예: 푸른 항해호")
             st.caption(f"예상 구매 비용: {money_label(ship_price(new_type))} · {SHIP_TYPES[new_type]['description']}")
-            submitted = st.form_submit_button("선박 구매", disabled=(st.session_state.phase == "ended" or len(st.session_state.fleet) >= MAX_FLEET_SIZE), use_container_width=True, type="primary")
+            submitted = st.form_submit_button("선박 구매", disabled=(st.session_state.phase == "ended"), use_container_width=True, type="primary")
             if submitted:
                 buy_ship(new_type, new_name)
                 st.rerun()
