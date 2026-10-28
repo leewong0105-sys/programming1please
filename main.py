@@ -13,6 +13,7 @@ MONEY_SCALE = 1_000_000  # 게임 금액 1단위 = 100만 원
 START_MONEY = 10_000 * MONEY_SCALE  # 테스트용 시작 자금 100억 원
 START_EMISSION = 100
 TURN_YEARS = 1  # 다음 해로 버튼 한 번에 진행할 게임 연수
+MAX_FLEET_SIZE = 6  # 회사가 보유할 수 있는 최대 선박 수
 
 DESTINATIONS = [
     {"name": "도쿄", "years": 1, "income": 15 * MONEY_SCALE, "fee": 2 * MONEY_SCALE},
@@ -22,16 +23,6 @@ DESTINATIONS = [
     {"name": "싱가포르", "years": 2, "income": 45 * MONEY_SCALE, "fee": 4 * MONEY_SCALE},
     {"name": "로테르담", "years": 3, "income": 80 * MONEY_SCALE, "fee": 3.5 * MONEY_SCALE},
     {"name": "로스앤젤레스", "years": 3, "income": 75 * MONEY_SCALE, "fee": 4 * MONEY_SCALE},
-]
-
-EQUIPMENT = [
-    {"id": 1, "name": "선체 코팅·프로펠러 개선", "price": 15 * MONEY_SCALE, "reduction": 10, "effect": "배출량 10%p 감축"},
-    {"id": 2, "name": "폐열 회수 장치", "price": 25 * MONEY_SCALE, "reduction": 10, "effect": "배출량 10%p 감축"},
-    {"id": 3, "name": "지상전력공급장치", "price": 30 * MONEY_SCALE, "reduction": 10, "effect": "배출량 10%p 감축"},
-    {"id": 4, "name": "풍력 보조 돛", "price": 40 * MONEY_SCALE, "reduction": 15, "effect": "배출량 15%p 감축"},
-    {"id": 5, "name": "LNG 이중연료 엔진", "price": 60 * MONEY_SCALE, "reduction": 15, "effect": "배출량 15%p 감축"},
-    {"id": 6, "name": "암모니아·메탄올 엔진", "price": 100 * MONEY_SCALE, "reduction": 20, "effect": "배출량 20%p 감축"},
-    {"id": 7, "name": "탄소 포집 장치", "price": 130 * MONEY_SCALE, "reduction": 20, "effect": "배출량 20%p 감축"},
 ]
 
 TRANSPORT = [
@@ -56,30 +47,32 @@ SHIP_TYPES = {
 SHIP_PRICE_STEP_RATE = 0.15
 
 RESEARCH_TECHS = [
-    {"id": "ammonia", "name": "암모니아 추진 기술", "stages": [
-        {"price": 10 * MONEY_SCALE, "reduction": 3, "label": "1단계 · 기초 연구"},
-        {"price": 25 * MONEY_SCALE, "reduction": 5, "label": "2단계 · 실증 연구"},
-        {"price": 50 * MONEY_SCALE, "reduction": 7, "label": "3단계 · 상용화 완성"}]},
-    {"id": "methanol", "name": "메탄올 추진 기술", "stages": [
-        {"price": 12 * MONEY_SCALE, "reduction": 3, "label": "1단계 · 기초 연구"},
-        {"price": 28 * MONEY_SCALE, "reduction": 5, "label": "2단계 · 실증 연구"},
-        {"price": 55 * MONEY_SCALE, "reduction": 7, "label": "3단계 · 상용화 완성"}]},
+    # 6개 연구 기술을 3단계씩 완료하면 총 100%p를 감축한다.
+    # 감축 계수는 단계별로 합산되며, 연구비 설정은 기존 값을 유지한다.
+    {"id": "alternative_fuel", "name": "차세대 무탄소 연료 추진 기술", "stages": [
+        {"price": 5 * MONEY_SCALE, "reduction": 5, "label": "1단계 · 기초 연구"},
+        {"price": 10 * MONEY_SCALE, "reduction": 7, "label": "2단계 · 실증 연구"},
+        {"price": 20 * MONEY_SCALE, "reduction": 8, "label": "3단계 · 상용화 완성"}]},
     {"id": "capture", "name": "선상 탄소 포집 기술", "stages": [
-        {"price": 15 * MONEY_SCALE, "reduction": 2, "label": "1단계 · 원리 연구"},
-        {"price": 35 * MONEY_SCALE, "reduction": 5, "label": "2단계 · 장치 실증"},
-        {"price": 65 * MONEY_SCALE, "reduction": 7, "label": "3단계 · 상용화 완성"}]},
+        {"price": 5 * MONEY_SCALE, "reduction": 4, "label": "1단계 · 원리 연구"},
+        {"price": 10 * MONEY_SCALE, "reduction": 6, "label": "2단계 · 장치 실증"},
+        {"price": 20 * MONEY_SCALE, "reduction": 8, "label": "3단계 · 상용화 완성"}]},
     {"id": "efficiency", "name": "에너지 효율 개선 기술", "stages": [
-        {"price": 8 * MONEY_SCALE, "reduction": 3, "label": "1단계 · 효율 분석"},
-        {"price": 20 * MONEY_SCALE, "reduction": 5, "label": "2단계 · 시스템 개선"},
-        {"price": 45 * MONEY_SCALE, "reduction": 7, "label": "3단계 · 고효율 완성"}]},
+        {"price": 4 * MONEY_SCALE, "reduction": 4, "label": "1단계 · 효율 분석"},
+        {"price": 8 * MONEY_SCALE, "reduction": 5, "label": "2단계 · 시스템 개선"},
+        {"price": 16 * MONEY_SCALE, "reduction": 6, "label": "3단계 · 고효율 완성"}]},
     {"id": "wind", "name": "풍력 보조 추진 기술", "stages": [
-        {"price": 10 * MONEY_SCALE, "reduction": 3, "label": "1단계 · 풍력 실험"},
-        {"price": 25 * MONEY_SCALE, "reduction": 5, "label": "2단계 · 해상 실증"},
-        {"price": 50 * MONEY_SCALE, "reduction": 7, "label": "3단계 · 상용화 완성"}]},
+        {"price": 4 * MONEY_SCALE, "reduction": 3, "label": "1단계 · 풍력 실험"},
+        {"price": 8 * MONEY_SCALE, "reduction": 5, "label": "2단계 · 해상 실증"},
+        {"price": 16 * MONEY_SCALE, "reduction": 7, "label": "3단계 · 상용화 완성"}]},
     {"id": "shore_power", "name": "육상 전력 공급 기술", "stages": [
-        {"price": 12 * MONEY_SCALE, "reduction": 3, "label": "1단계 · 접속 연구"},
-        {"price": 30 * MONEY_SCALE, "reduction": 5, "label": "2단계 · 항만 실증"},
-        {"price": 55 * MONEY_SCALE, "reduction": 7, "label": "3단계 · 상용화 완성"}]},
+        {"price": 4 * MONEY_SCALE, "reduction": 3, "label": "1단계 · 접속 연구"},
+        {"price": 8 * MONEY_SCALE, "reduction": 5, "label": "2단계 · 항만 실증"},
+        {"price": 16 * MONEY_SCALE, "reduction": 7, "label": "3단계 · 상용화 완성"}]},
+    {"id": "hydrogen", "name": "청정 수소·연료전지 기술", "stages": [
+        {"price": 5 * MONEY_SCALE, "reduction": 4, "label": "1단계 · 기초 연구"},
+        {"price": 10 * MONEY_SCALE, "reduction": 6, "label": "2단계 · 실증 연구"},
+        {"price": 20 * MONEY_SCALE, "reduction": 7, "label": "3단계 · 상용화 완성"}]},
 ]
 
 SPECIAL_PORTS = {
@@ -324,13 +317,16 @@ def money_label(amount):
 
 
 def current_emission():
+    """연구 기술 6종의 효과만으로 배출량을 계산한다."""
     reduction = 0
     levels = st.session_state.get("research_levels", {})
     for tech in RESEARCH_TECHS:
         level = int(levels.get(tech["id"], 0))
+        # 구버전 저장 데이터의 암모니아/메탄올 연구 진행도는 통합 연료 연구에 반영한다.
+        if tech["id"] == "alternative_fuel":
+            level = max(level, int(levels.get("ammonia", 0)), int(levels.get("methanol", 0)))
+        level = max(0, min(level, len(tech["stages"])))
         reduction += sum(stage["reduction"] for stage in tech["stages"][:level])
-    # 구형 저장 상태와의 호환을 위해 기존 설비 구매 기록도 계산에 포함한다.
-    reduction += sum(item["reduction"] for item in EQUIPMENT if item["id"] in st.session_state.get("bought_eq", []))
     return max(0, START_EMISSION - reduction)
 
 
@@ -350,6 +346,9 @@ def buy_ship(ship_type, ship_name):
     ship_name = (ship_name or "").strip()
     if st.session_state.phase == "ended":
         return
+    if len(st.session_state.fleet) >= MAX_FLEET_SIZE:
+        st.session_state.msg = f"보유 가능한 선박은 최대 {MAX_FLEET_SIZE}척입니다."
+        return
     if not ship_name:
         st.session_state.msg = "선박 이름을 입력해 주세요."
         return
@@ -364,13 +363,52 @@ def buy_ship(ship_type, ship_name):
     st.session_state.money -= price
     st.session_state.fleet.append(ship)
     st.session_state.next_ship_id += 1
-    st.session_state.selected_ship_id = ship["id"]
+    # selected_ship_id는 관리 카드의 selectbox 위젯이 사용하므로,
+    # 구매 버튼을 누른 현재 실행에서는 직접 변경하지 않고 다음 실행에서 반영한다.
+    st.session_state.pending_selected_ship_id = ship["id"]
     if ship_type in ("LNG선", "탱크선", "케미컬 탱커"):
         st.session_state.unlocked_special_ports = sorted(set(
             st.session_state.unlocked_special_ports +
             [name for name, data in SPECIAL_PORTS.items() if ship_type in data["ship_types"]]
         ))
     st.session_state.msg = f"{ship_name} 구매 완료! ({ship_type})"
+    add_history()
+
+
+def rename_ship(ship_id, new_name):
+    new_name = (new_name or "").strip()
+    ship = next((s for s in st.session_state.fleet if s["id"] == ship_id), None)
+    if not ship:
+        return
+    if not new_name:
+        st.session_state.msg = "선박 이름을 입력해 주세요."
+        return
+    if any(s["id"] != ship_id and s["name"].casefold() == new_name.casefold() for s in st.session_state.fleet):
+        st.session_state.msg = "이미 사용 중인 선박 이름입니다. 다른 이름을 입력해 주세요."
+        return
+    old_name = ship["name"]
+    ship["name"] = new_name
+    st.session_state.msg = f"선박 이름을 {old_name}에서 {new_name}(으)로 변경했습니다."
+
+
+def sell_ship(ship_id):
+    ship = next((s for s in st.session_state.fleet if s["id"] == ship_id), None)
+    if not ship:
+        return
+    if ship.get("status", ship.get("phase", "docked")) != "docked":
+        st.session_state.msg = "운항 중인 선박은 판매할 수 없습니다. 부산항에 정박시킨 뒤 판매해 주세요."
+        return
+    # 연도에 따라 구매가의 70~80%를 환급한다.
+    refund_rate = 0.70 + ((int(st.session_state.year) + int(ship["id"])) % 11) / 100
+    refund = int(int(ship.get("price", 0)) * refund_rate)
+    st.session_state.money += refund
+    st.session_state.fleet.remove(ship)
+    if not st.session_state.fleet:
+        st.session_state.selected_ship_id = None
+    elif st.session_state.selected_ship_id == ship_id:
+        st.session_state.selected_ship_id = st.session_state.fleet[0]["id"]
+    st.session_state.selected_port = None
+    st.session_state.msg = f"{ship['name']} 판매 완료! 구매가의 {round(refund_rate*100)}%인 {money_label(refund)}을 받았습니다."
     add_history()
 
 
@@ -428,28 +466,28 @@ def actual_years(destination_name):
 def port_benefit(destination_name):
     """게임용 항만 인센티브를 계산한다. 실제 항만 요금 자체가 아닌 단순화된 게임 규칙이다."""
     emission = current_emission()
-    bought_eq = st.session_state.bought_eq
+    levels = st.session_state.get("research_levels", {})
+    fuel_level = max(int(levels.get("alternative_fuel", 0)), int(levels.get("ammonia", 0)), int(levels.get("methanol", 0)))
+    researched_techs = sum(1 for tech in RESEARCH_TECHS if int(levels.get(tech["id"], 0)) > 0)
     result = {"discount_percent": 0, "arrival_bonus": 0, "note": ""}
 
     if destination_name == "싱가포르":
-        # MPA Green Ship Programme의 저탄소 연료 기준을 단순화해 반영.
-        # 게임에서는 LNG 엔진을 20%, 암모니아·메탄올 엔진을 30% 감면 자격으로 간주한다.
-        if 6 in bought_eq:
+        # 연구 진행도에 따른 게임용 친환경 운항 인센티브.
+        if fuel_level >= 3:
             result.update(discount_percent=30,
-                          note="저탄소 연료 인센티브(게임 규칙): 정박비 30% 감면")
-        elif 5 in bought_eq:
+                          note="무탄소 연료 연구 완료 인센티브(게임 규칙): 정박비 30% 감면")
+        elif fuel_level >= 1:
             result.update(discount_percent=20,
-                          note="LNG 연료 인센티브(게임 규칙): 정박비 20% 감면")
+                          note="대체 연료 연구 인센티브(게임 규칙): 정박비 20% 감면")
         else:
-            result["note"] = "감면 조건: LNG 이중연료 엔진 또는 암모니아·메탄올 엔진 필요"
+            result["note"] = "감면 조건: 차세대 무탄소 연료 추진 기술 연구 필요"
 
     elif destination_name == "로테르담":
-        # 일반 외항선의 Green Award 자격을 자동으로 단정하지 않고, 게임용 환경 성과 조건을 별도로 둔다.
-        if emission <= 30 and len(bought_eq) >= 3:
+        if emission <= 30 and researched_techs >= 3:
             result.update(discount_percent=15,
                           note="환경 성과 인센티브(게임 규칙): 정박비 15% 감면")
         else:
-            result["note"] = "게임 내 감면 조건: 탄소 감축 설비 3개 이상 구매 및 배출량 30% 이하"
+            result["note"] = "게임 내 감면 조건: 연구 기술 3종 이상 착수 및 배출량 30% 이하"
 
     elif destination_name == "로스앤젤레스":
         # 실제 ESI 점수를 배출량만으로 계산할 수 없으므로, 배출량은 시연용 대체 기준으로만 사용.
@@ -478,6 +516,26 @@ def add_history():
         "money": int(st.session_state.money),
         "emission": int(current_emission()),
     })
+
+
+def assign_destination(destination_name, ship=None):
+    """선택한 정박 선박에 목적지를 배정한다. 실제 출항은 출항 버튼으로 시작한다."""
+    ship = ship or selected_ship()
+    if not ship or ship.get("status", ship.get("phase", "docked")) != "docked":
+        return False
+    ship_type = ship.get("type", "기본 화물선")
+    if destination_name in FISHING_GROUNDS and ship_type != "어선":
+        st.session_state.msg = "어장에는 어선만 목적지를 배정할 수 있습니다."
+        return False
+    if ship_type == "어선" and destination_name not in FISHING_GROUNDS:
+        st.session_state.msg = "어선은 지정된 어장으로만 목적지를 배정할 수 있습니다."
+        return False
+    if destination_name in SPECIAL_PORTS and ship_type not in SPECIAL_PORTS[destination_name]["ship_types"]:
+        st.session_state.msg = "이 특수 항구는 해당 선종만 이용할 수 있습니다."
+        return False
+    ship["dest"] = destination_name
+    st.session_state.selected_port = destination_name
+    return True
 
 
 def start_voyage(destination_name, ship=None):
@@ -516,6 +574,7 @@ def start_voyage(destination_name, ship=None):
         "waiting_for_turn": True,
         "weather": weather["name"], "weather_note": weather["description"],
         "voyage_income": round(actual_income(destination_name) * weather["income_rate"]),
+        "income_weather_rate": weather["income_rate"],
         "port_fee_paid": 0, "returning_income": round(actual_income(destination_name) * weather["income_rate"]),
         "event_cooldown": 3, "voyage_event_count": 0,
     })
@@ -569,22 +628,6 @@ def pause_voyage(ship=None):
         st.session_state.msg = f"{ship['name']} 회항을 시작합니다."
 
 
-def buy_equipment(item_id):
-    if st.session_state.phase == "ended":
-        return
-    item = next(item for item in EQUIPMENT if item["id"] == item_id)
-    if item_id in st.session_state.bought_eq or st.session_state.money < item["price"]:
-        return
-    st.session_state.money -= item["price"]
-    st.session_state.bought_eq.append(item_id)
-    add_history()
-    st.session_state.msg = f"{item['name']} 구매 완료!"
-    if current_emission() == 0:
-        st.session_state.phase = "ended"
-        st.session_state.result = "success"
-        st.session_state.msg = "모든 탄소 배출을 감축했습니다. 탄소중립 달성!"
-
-
 def buy_transport(item_id):
     if st.session_state.phase == "ended":
         return
@@ -633,6 +676,7 @@ def arrive(ship):
     ship["weather_note"] = return_weather["description"]
     if return_weather["income_rate"] < 1:
         ship["returning_income"] = round(ship.get("returning_income", 0) * return_weather["income_rate"])
+        ship["income_weather_rate"] = float(ship.get("income_weather_rate", 1.0)) * return_weather["income_rate"]
     return_duration = max(1, actual_years(destination_name))
     # 왕복 전체 기간을 유지한다. 여기서 편도 기간을 다시 더하지 않는다.
     ship["years_left"] = max(0, int(ship.get("years_left", return_duration)))
@@ -649,6 +693,14 @@ def settle_return(ship):
     if not ship or ship.get("status", ship.get("phase")) != "returning":
         return
     income = int(ship.get("returning_income", 0) or 0)
+    # 운송 강화 구매 후에도 실제 정산에 수익 버프가 빠지지 않도록 기본 운임에 강화 배율을 적용한다.
+    destination_name = ship.get("dest")
+    destination = next((item for item in DESTINATIONS if item["name"] == destination_name), None)
+    if destination is None:
+        destination = SPECIAL_PORTS.get(destination_name) or FISHING_GROUNDS.get(destination_name)
+    if destination is not None:
+        weather_rate = float(ship.get("income_weather_rate", 1.0))
+        income = round(int(destination["income"]) * income_multiplier() * weather_rate)
     busan_fee = 1 * MONEY_SCALE
     st.session_state.money -= busan_fee
     st.session_state.money += income
@@ -1031,9 +1083,15 @@ st.title("관제 센터")
 st.caption("선단 운영 현황을 확인하고, 수익과 탄소 감축 기술을 관리하세요.")
 
 def advance_turn():
-    """다음 해로를 눌렀을 때만 1년 진행하고, 그 1년의 이동 애니메이션을 예약한다."""
+    """목적지 미배정 경고를 거친 뒤 실제로 1년 진행한다."""
     if st.session_state.phase == "ended":
         return
+    if not st.session_state.get("show_empty_destination_warning", False):
+        if not any(ship.get("dest") for ship in st.session_state.get("fleet", [])):
+            st.session_state.show_empty_destination_warning = True
+            return
+    st.session_state.show_empty_destination_warning = False
+    st.session_state.confirm_empty_destination_turn = False
 
     old_year = int(st.session_state.year)
     new_year = min(END_YEAR, old_year + 1)
@@ -1115,20 +1173,43 @@ if st.session_state.phase == "ended":
         st.rerun()
     st.stop()
 
+# 선박 구매 직후 선택할 선박은 위젯이 생성되기 전에 반영한다.
+_pending_ship_id = st.session_state.pop("pending_selected_ship_id", None)
+if _pending_ship_id is not None:
+    st.session_state.selected_ship_id = _pending_ship_id
+
 with st.expander("🏢 회사 및 선단 관리", expanded=True):
     st.markdown(
         f"**{st.session_state.company_name}**  ·  선주 **{st.session_state.captain_name}**",
         help="회사명과 선주 이름은 로그인 화면에서 설정합니다."
     )
-    st.markdown("**보유 선박**")
+    st.markdown(f"**보유 선박 ({len(st.session_state.fleet)}/{MAX_FLEET_SIZE})**")
     for ship in st.session_state.fleet:
-        st.write(f"🚢 **{ship['name']}** · {ship['type']} · 구매가 {money_label(ship['price'])}")
-    st.selectbox(
-        "관리할 선박",
-        options=[ship["id"] for ship in st.session_state.fleet],
-        format_func=lambda sid: next(s["name"] + " · " + s["type"] for s in st.session_state.fleet if s["id"] == sid),
-        key="selected_ship_id",
-    )
+        st.write(f"🚢 **{ship['name']}** · {ship['type']} · 구매가 {money_label(ship['price'])} · 상태: { {'docked':'부산항 정박','outbound':'항해 중','returning':'귀항 중'}.get(ship.get('status','docked'),'정박') }")
+    if st.session_state.fleet:
+        st.selectbox(
+            "관리할 선박",
+            options=[ship["id"] for ship in st.session_state.fleet],
+            format_func=lambda sid: next(s["name"] + " · " + s["type"] for s in st.session_state.fleet if s["id"] == sid),
+            key="selected_ship_id",
+        )
+        managed = selected_ship()
+        if managed:
+            with st.form(f"rename_ship_form_{managed['id']}"):
+                edited_name = st.text_input("선박 이름 변경", value=managed["name"], key=f"rename_ship_name_{managed['id']}")
+                rename_submit = st.form_submit_button("이름 변경", use_container_width=True)
+                if rename_submit:
+                    rename_ship(managed["id"], edited_name)
+                    st.rerun()
+            sell_rate = 0.70 + ((int(st.session_state.year) + int(managed["id"])) % 11) / 100
+            st.caption(f"올해 예상 중고 판매 환급률: {round(sell_rate*100)}% · 예상 환급액 {money_label(int(managed.get('price',0)*sell_rate))}")
+            if st.button("선택한 선박 판매", key=f"sell_ship_{managed['id']}", disabled=managed.get("status","docked") != "docked", use_container_width=True):
+                sell_ship(managed["id"])
+                st.rerun()
+            if managed.get("status","docked") != "docked":
+                st.caption("운항 중인 선박은 판매할 수 없습니다.")
+    else:
+        st.info("보유 선박이 없습니다. 아래 선박 구매 메뉴에서 새 선박을 구매하세요.")
 
 if st.session_state.msg:
     st.success(st.session_state.msg)
@@ -1294,14 +1375,23 @@ with map_col:
             if selected_points:
                 point = selected_points[-1]
                 point_index = point.get("point_index", point.get("pointIndex"))
-                port_names = ["부산"] + [d["name"] for d in DESTINATIONS]
+                port_names = ["부산"] + [d["name"] for d in DESTINATIONS] + list(SPECIAL_PORTS) + list(FISHING_GROUNDS)
                 if point_index is not None and 0 <= int(point_index) < len(port_names):
                     picked = port_names[int(point_index)]
                     st.session_state.selected_port = None if picked == "부산" else picked
+                    if picked != "부산":
+                        assign_destination(picked, selected_ship())
         except (AttributeError, TypeError, KeyError, ValueError):
             pass
 
 
+    if st.session_state.get("show_empty_destination_warning", False):
+        st.markdown("<div style='background:#fff1f2;border:1px solid #ef4444;color:#b91c1c;padding:12px 14px;border-radius:10px;font-weight:700;margin:8px 0'>⚠️ 아직 목적지를 선택하지 않았습니다. 정말 진행하시겠습니까?</div>", unsafe_allow_html=True)
+        # 경고가 표시된 상태에서 다시 누르면 목적지 없이도 진행 가능
+        if st.button("그래도 다음 해로 진행", key="confirm_empty_destination_turn_button", type="primary", use_container_width=True, disabled=(st.session_state.phase == "ended")):
+            st.session_state.confirm_empty_destination_turn = True
+            advance_turn()
+            st.rerun()
     st.button("다음 해로 ▶", key="advance_turn_button", type="primary",
                disabled=(st.session_state.phase == "ended"),
                use_container_width=True, on_click=advance_turn)
@@ -1322,9 +1412,13 @@ with info_col:
     # 참고 이미지처럼 오른쪽에 운항 명령 카드를 구성한다. 게임 로직과 지도는 변경하지 않는다.
     st.markdown("<div style='letter-spacing:2px;font-size:11px;color:#8a94a6;font-weight:700'>VOYAGE CONTROL</div>", unsafe_allow_html=True)
     st.markdown("## 운항 명령")
-    selected_port = st.session_state.selected_port
     ship = selected_ship()
+    if ship and not st.session_state.selected_port and ship.get("dest"):
+        st.session_state.selected_port = ship.get("dest")
+    selected_port = st.session_state.selected_port
     can_choose = bool(ship and ship.get("status", ship.get("phase", "docked")) == "docked" and st.session_state.phase != "ended")
+    if ship:
+        st.caption(f"현재 선택 선박: {ship['name']} · 배정 목적지: {ship.get('dest') or '미배정'}")
     ship_type = ship["type"] if ship else "기본 화물선"
     available_special_ports = [
         name for name in st.session_state.unlocked_special_ports
@@ -1347,7 +1441,8 @@ with info_col:
                 default_index = available_destinations.index(selected_port) if selected_port in available_destinations else 0
                 picked_port = st.selectbox("목적항", available_destinations, index=default_index, key="destination_dropdown")
                 if st.button("목적항 설정", key="destination_dropdown_apply", use_container_width=True):
-                    st.session_state.selected_port = picked_port
+                    if assign_destination(picked_port, ship):
+                        st.session_state.msg = f"{ship['name']}의 목적지가 {picked_port}(으)로 설정되었습니다. 출항 버튼을 눌러 운항을 시작하세요."
                     st.rerun()
         if selected_port and selected_port in available_destinations:
             destination = next((d for d in DESTINATIONS if d["name"] == selected_port), None)
@@ -1410,7 +1505,8 @@ with info_col:
                                               index=(available_destinations.index(selected_port) if selected_port in available_destinations else 0),
                                               key="alternate_destination_while_sailing")
                 if st.button("선택한 목적지 정보 보기", key="alternate_destination_pick", use_container_width=True):
-                    st.session_state.selected_port = alternate_port
+                    if assign_destination(alternate_port, ship):
+                        st.session_state.msg = f"{ship['name']}의 목적지가 {alternate_port}(으)로 설정되었습니다."
                     st.rerun()
         else:
             pending_ship = selected_ship()
@@ -1423,8 +1519,9 @@ with info_col:
             st.info("지도에서 목적지 핀을 선택하거나 목적항 선택 메뉴를 열어 목적지를 설정하세요.")
             if available_destinations:
                 manual_port = st.selectbox("목적항 / 어장 선택", available_destinations, key="manual_destination")
-                if st.button("목적지 정보 보기", key="manual_destination_pick", disabled=not can_choose, use_container_width=True):
-                    st.session_state.selected_port = manual_port
+                if st.button("목적지 배정 / 정보 보기", key="manual_destination_pick", disabled=not can_choose, use_container_width=True):
+                    if assign_destination(manual_port, ship):
+                        st.session_state.msg = f"{ship['name']}의 목적지가 {manual_port}(으)로 설정되었습니다."
                     st.rerun()
             else:
                 st.warning("이 선박이 이용할 수 있는 특수 목적지가 없습니다.")
@@ -1487,14 +1584,14 @@ with tr_tab:
             st.write(money_label(item["price"]))
         st.divider()
 with ship_tab:
-    st.caption("새 선박을 구매하면 회사 선단에 추가됩니다. 구매 후 운항할 선박을 위의 선단 관리에서 선택할 수 있습니다.")
+    st.caption(f"새 선박을 구매하면 회사 선단에 추가됩니다. 현재 {len(st.session_state.fleet)}/{MAX_FLEET_SIZE}척 보유 중이며, 최대 {MAX_FLEET_SIZE}척까지 구매할 수 있습니다. 구매 후 운항할 선박을 위의 선단 관리에서 선택할 수 있습니다.")
     with st.container(border=True):
         st.markdown("### 🚢 신규 선박 구매")
         with st.form("buy_ship_form", clear_on_submit=True):
             new_type = st.selectbox("선박 종류", list(SHIP_TYPES.keys()))
             new_name = st.text_input("선박 이름", placeholder="예: 푸른 항해호")
             st.caption(f"예상 구매 비용: {money_label(ship_price(new_type))} · {SHIP_TYPES[new_type]['description']}")
-            submitted = st.form_submit_button("선박 구매", disabled=st.session_state.phase == "ended", use_container_width=True, type="primary")
+            submitted = st.form_submit_button("선박 구매", disabled=(st.session_state.phase == "ended" or len(st.session_state.fleet) >= MAX_FLEET_SIZE), use_container_width=True, type="primary")
             if submitted:
                 buy_ship(new_type, new_name)
                 st.rerun()
