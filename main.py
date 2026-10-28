@@ -392,6 +392,10 @@ def rename_ship(ship_id, new_name):
 
 
 def sell_ship(ship_id):
+    # 회사 운영을 위해 마지막 남은 선박은 판매할 수 없다.
+    if len(st.session_state.get("fleet", [])) <= 1:
+        st.session_state.msg = "선박이 1척만 남아 있을 때는 판매할 수 없습니다. 먼저 다른 선박을 구매해 주세요."
+        return
     ship = next((s for s in st.session_state.fleet if s["id"] == ship_id), None)
     if not ship:
         return
@@ -403,10 +407,10 @@ def sell_ship(ship_id):
     refund = int(int(ship.get("price", 0)) * refund_rate)
     st.session_state.money += refund
     st.session_state.fleet.remove(ship)
-    if not st.session_state.fleet:
-        st.session_state.selected_ship_id = None
-    elif st.session_state.selected_ship_id == ship_id:
-        st.session_state.selected_ship_id = st.session_state.fleet[0]["id"]
+    # 선택 위젯이 생성된 뒤 selected_ship_id를 직접 바꾸면 Streamlit 오류가 난다.
+    # 다음 실행에서 위젯 생성 전에 남은 선박을 선택하도록 예약한다.
+    if st.session_state.get("selected_ship_id") == ship_id:
+        st.session_state.pending_selected_ship_id = st.session_state.fleet[0]["id"]
     st.session_state.selected_port = None
     st.session_state.msg = f"{ship['name']} 판매 완료! 구매가의 {round(refund_rate*100)}%인 {money_label(refund)}을 받았습니다."
     add_history()
@@ -1203,10 +1207,13 @@ with st.expander("🏢 회사 및 선단 관리", expanded=True):
                     st.rerun()
             sell_rate = 0.70 + ((int(st.session_state.year) + int(managed["id"])) % 11) / 100
             st.caption(f"올해 예상 중고 판매 환급률: {round(sell_rate*100)}% · 예상 환급액 {money_label(int(managed.get('price',0)*sell_rate))}")
-            if st.button("선택한 선박 판매", key=f"sell_ship_{managed['id']}", disabled=managed.get("status","docked") != "docked", use_container_width=True):
+            cannot_sell = len(st.session_state.fleet) <= 1 or managed.get("status", "docked") != "docked"
+            if st.button("선택한 선박 판매", key=f"sell_ship_{managed['id']}", disabled=cannot_sell, use_container_width=True):
                 sell_ship(managed["id"])
                 st.rerun()
-            if managed.get("status","docked") != "docked":
+            if len(st.session_state.fleet) <= 1:
+                st.caption("최소 1척은 보유해야 하므로 마지막 선박은 판매할 수 없습니다.")
+            elif managed.get("status", "docked") != "docked":
                 st.caption("운항 중인 선박은 판매할 수 없습니다.")
     else:
         st.info("보유 선박이 없습니다. 아래 선박 구매 메뉴에서 새 선박을 구매하세요.")
