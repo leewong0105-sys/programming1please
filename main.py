@@ -28,7 +28,7 @@ DESTINATIONS = [
 TRANSPORT = [
     {"id": 1, "name": "화물 적재함 확장", "price": 20 * MONEY_SCALE, "effect": "모든 항해 수익 +10%"},
     {"id": 2, "name": "대형 선체로 교체", "price": 60 * MONEY_SCALE, "effect": "모든 항해 수익 +25%"},
-    {"id": 3, "name": "고속 엔진", "price": 50 * MONEY_SCALE, "effect": "모든 항해 기간 1년 단축 (최소 1년)"},
+    {"id": 3, "name": "자동화 하역 시스템", "price": 30 * MONEY_SCALE, "effect": "정박비 할인 1단계부터 최대 30% (3단계 연구)"},
     {"id": 4, "name": "자율운항선박", "price": 100 * MONEY_SCALE, "effect": "자동 운항 기능 해금"},
 ]
 
@@ -84,9 +84,9 @@ SPECIAL_PORTS = {
                     "coords": (25.0, 55.0), "description": "탱크선 전용 터미널(게임용 목적지)"},
 }
 FISHING_GROUNDS = {
-    "동해 어장": {"years": 1, "income": 22 * MONEY_SCALE, "fee": 1 * MONEY_SCALE, "coords": (38.0, 132.0),
+    "동해 어장": {"years": 1, "income": 22 * MONEY_SCALE, "fee": 0, "coords": (38.0, 132.0),
                   "description": "동해 어장에서 조업 후 귀항해 어획물을 판매합니다."},
-    "북태평양 어장": {"years": 2, "income": 42 * MONEY_SCALE, "fee": 2 * MONEY_SCALE, "coords": (40.0, 155.0),
+    "북태평양 어장": {"years": 2, "income": 42 * MONEY_SCALE, "fee": 0, "coords": (40.0, 155.0),
                       "description": "먼바다 어장에서 조업하는 장거리 어업입니다."},
 }
 
@@ -131,7 +131,7 @@ def new_ship_state(ship_id, name, ship_type, price):
         "weather": None, "weather_note": "", "voyage_income": 0,
         "returning_income": 0, "port_fee_paid": 0, "event_cooldown": 0,
         "last_event_title": None,
-        "voyage_event_count": 0, "event_log": [],
+        "voyage_event_count": 0, "event_log": [], "emergency_quest_bonus": 0, "emergency_quest_year": None,
     }
 
 
@@ -220,6 +220,9 @@ def init():
         "money": START_MONEY,
         "bought_eq": [],
         "bought_tr": [],
+        "transport_levels": {},
+        "annual_quest": None,
+        "annual_quest_year": None,
         "dest": None,
         "pos": 0,
         "total": 0,
@@ -254,6 +257,12 @@ def init():
     for key, value in defaults.items():
         if key not in st.session_state:
             st.session_state[key] = value.copy() if isinstance(value, (list, dict)) else value
+    if "transport_levels" not in st.session_state:
+        st.session_state.transport_levels = {}
+    if "annual_quest" not in st.session_state:
+        st.session_state.annual_quest = None
+    if "annual_quest_year" not in st.session_state:
+        st.session_state.annual_quest_year = None
     ensure_fleet_fields()
 
 
@@ -266,6 +275,9 @@ def reset_game():
         "money": START_MONEY,
         "bought_eq": [],
         "bought_tr": [],
+        "transport_levels": {},
+        "annual_quest": None,
+        "annual_quest_year": None,
         "dest": None,
         "pos": 0,
         "total": 0,
@@ -468,8 +480,56 @@ def actual_years(destination_name):
         destination = SPECIAL_PORTS.get(destination_name) or FISHING_GROUNDS.get(destination_name)
     if destination is None:
         return 1
-    reduction = 1 if 3 in st.session_state.bought_tr else 0
-    return max(1, destination["years"] - reduction)
+    return max(1, destination["years"])
+
+
+def handling_discount_percent():
+    level = max(0, min(3, int(st.session_state.get("transport_levels", {}).get("handling", 0))))
+    return level * 10
+
+
+def generate_annual_quest(year):
+    """매년 1개만 생성되는 선종 지정 긴급 운송 의뢰."""
+    destinations = DESTINATIONS[:]
+    destination = random.choice(destinations)
+    ship_type = random.choice(["컨테이너선", "LNG선", "탱크선", "케미컬 탱커", "기본 화물선"])
+    same_duration = [d for d in destinations if d["years"] == destination["years"]]
+    benchmark = max(d["income"] for d in same_duration)
+    # 같은 운항 기간의 일반 항구 중 최고 수익보다 25% 높은 의뢰 운임을 보장한다.
+    reward = int(benchmark * 1.25)
+    st.session_state.annual_quest = {
+        "year": int(year), "destination": destination["name"], "ship_type": ship_type,
+        "reward": reward, "status": "open", "ship_id": None,
+    }
+    st.session_state.annual_quest_year = int(year)
+
+
+def accept_annual_quest(ship_id):
+    quest = st.session_state.get("annual_quest")
+    ship = get_ship(ship_id)
+    if not quest or quest.get("status") != "open" or not ship:
+        return
+    if ship.get("type") != quest["ship_type"]:
+        st.session_state.msg = f"이 의뢰는 {quest['ship_type']}만 수락할 수 있습니다."
+        return
+    if ship.get("status", "docked") != "docked":
+        st.session_state.msg = "부산항에 정박 중인 선박만 의뢰를 수락할 수 있습니다."
+        return
+    if st.session_state.phase == "ended":
+        return
+    if not assign_destination(quest["destination"], ship):
+        return
+    start_voyage(quest["destination"], ship)
+    if ship.get("status") == "outbound":
+        base_income = int(actual_income(quest["destination"]))
+        weather_rate = float(ship.get("income_weather_rate", 1.0))
+        target_income = int(quest["reward"] * income_multiplier() / max(1.0, income_multiplier()))
+        # 의뢰 총 운임이 약속한 보상에 도달하도록 귀항 정산 시 차액을 별도 지급한다.
+        ship["emergency_quest_bonus"] = max(0, round(target_income * weather_rate) - round(base_income * weather_rate))
+        ship["emergency_quest_year"] = quest["year"]
+        quest["status"] = "accepted"
+        quest["ship_id"] = ship["id"]
+        st.session_state.msg = f"{quest['year']}년 긴급 의뢰 수락! {ship['name']}이(가) {quest['destination']}으로 출항합니다."
 
 
 def port_benefit(destination_name):
@@ -515,7 +575,12 @@ def port_benefit(destination_name):
 def discounted_port_fee(destination_name):
     destination = next(item for item in DESTINATIONS if item["name"] == destination_name)
     benefit = port_benefit(destination_name)
-    fee = round(int(destination["fee"]) * (100 - benefit["discount_percent"]) / 100)
+    handling = handling_discount_percent()
+    total_discount = min(100, int(benefit["discount_percent"]) + handling)
+    if handling:
+        benefit["note"] = (benefit["note"] + " · " if benefit["note"] else "") + f"자동화 하역 시스템 {handling}% 할인"
+    fee = round(int(destination["fee"]) * (100 - total_discount) / 100)
+    benefit["discount_percent"] = total_discount
     return fee, benefit
 
 
@@ -605,7 +670,7 @@ def cancel_departure(ship=None):
             "trip_elapsed": 0, "waiting_for_turn": False,
             "weather": None, "weather_note": "", "voyage_income": 0,
             "returning_income": 0, "port_fee_paid": 0,
-            "event_cooldown": 0, "voyage_event_count": 0,
+            "event_cooldown": 0, "voyage_event_count": 0, "emergency_quest_bonus": 0, "emergency_quest_year": None,
         })
         set_ship_status(ship, "docked")
         sync_ship_map_progress(ship)
@@ -641,11 +706,24 @@ def buy_transport(item_id):
     if st.session_state.phase == "ended":
         return
     item = next(item for item in TRANSPORT if item["id"] == item_id)
-    if item_id in st.session_state.bought_tr or st.session_state.money < item["price"]:
-        return
-    st.session_state.money -= item["price"]
-    st.session_state.bought_tr.append(item_id)
-    st.session_state.msg = f"{item['name']} 구매 완료!"
+    if item_id == 3:
+        levels = st.session_state.setdefault("transport_levels", {})
+        level = int(levels.get("handling", 0))
+        prices = [30, 50, 80]
+        if level >= 3 or st.session_state.money < prices[level] * MONEY_SCALE:
+            return
+        cost = prices[level] * MONEY_SCALE
+        st.session_state.money -= cost
+        levels["handling"] = level + 1
+        if 3 not in st.session_state.bought_tr:
+            st.session_state.bought_tr.append(3)
+        st.session_state.msg = f"자동화 하역 시스템 {level + 1}단계 완료! 모든 항구 정박비 {10 * (level + 1)}% 할인."
+    else:
+        if item_id in st.session_state.bought_tr or st.session_state.money < item["price"]:
+            return
+        st.session_state.money -= item["price"]
+        st.session_state.bought_tr.append(item_id)
+        st.session_state.msg = f"{item['name']} 구매 완료!"
     add_history()
 
 
@@ -663,9 +741,14 @@ def arrive(ship):
         return
     if destination_name in [d["name"] for d in DESTINATIONS]:
         port_fee, benefit = discounted_port_fee(destination_name)
+    elif destination_name in FISHING_GROUNDS:
+        port_fee = 0
+        benefit = {"discount_percent": 0, "arrival_bonus": 0, "note": "어장은 정박비가 없습니다."}
     else:
-        port_fee = int(destination.get("fee", 0))
-        benefit = {"discount_percent": 0, "arrival_bonus": 0, "note": destination.get("description", "게임용 목적지")}
+        base_fee = int(destination.get("fee", 0))
+        discount = handling_discount_percent()
+        port_fee = round(base_fee * (100 - discount) / 100)
+        benefit = {"discount_percent": discount, "arrival_bonus": 0, "note": f"자동화 하역 시스템 {discount}% 할인" if discount else destination.get("description", "게임용 목적지")}
     st.session_state.money -= int(port_fee)
     ship["port_fee_paid"] = int(ship.get("port_fee_paid", 0)) + int(port_fee)
     fee_note = benefit["note"]
@@ -712,18 +795,22 @@ def settle_return(ship):
         income = round(int(destination["income"]) * income_multiplier() * weather_rate)
     busan_fee = 1 * MONEY_SCALE
     st.session_state.money -= busan_fee
+    quest_bonus = int(ship.get("emergency_quest_bonus", 0) or 0)
+    income += quest_bonus
     st.session_state.money += income
     add_history()
     ship_name = ship.get("name", "선박")
+    quest_note = f" (긴급 의뢰 보상 포함 +{money_label(quest_bonus)})" if quest_bonus else ""
     ship.update({"dest": None, "years_left": 0, "leg_years": 0,
                  "trip_elapsed": 0, "waiting_for_turn": False,
                  "weather": None, "weather_note": "", "voyage_income": 0,
-                 "returning_income": 0, "port_fee_paid": 0, "event_cooldown": 0})
+                 "returning_income": 0, "port_fee_paid": 0, "event_cooldown": 0,
+                 "emergency_quest_bonus": 0, "emergency_quest_year": None})
     set_ship_status(ship, "docked")
     sync_ship_map_progress(ship)
     if st.session_state.auto_on:
         st.session_state.auto_idx = (st.session_state.auto_idx + 1) % len(AUTO_ROUTE)
-    st.session_state.return_feedback = f"{ship_name} 부산항 귀항 완료! 운임 {money_label(income)} 지급, 부산항 정박비 {money_label(busan_fee)} 차감."
+    st.session_state.return_feedback = f"{ship_name} 부산항 귀항 완료! 운임 {money_label(income)} 지급{quest_note}, 부산항 정박비 {money_label(busan_fee)} 차감."
 
 
 def finish_return(ship):
@@ -794,12 +881,6 @@ def trigger_random_event(ship=None):
         return
 
     events = [
-        {"title": "긴급 운송 계약", "condition": event_condition_always,
-         "description": "긴급 화물을 추가 운송하면 보너스를 받을 수 있습니다. 일정에 맞추지 못하면 위약금이 발생합니다.",
-         "choices": [
-             {"label": "계약 수락", "success_chance": 0.75, "success_delta": 8 * MONEY_SCALE, "fail_delta": -3 * MONEY_SCALE,
-              "success": "긴급 운송 계약 성공! 보너스 800만원을 받았습니다.", "failure": "납기 지연으로 위약금 300만원을 냈습니다."},
-             {"label": "거절", "delta": 0, "result": "계약을 거절하고 기존 항해를 계속합니다."}]},
         {"title": "엔진 이상 경고", "condition": event_condition_always,
          "description": "지금 점검하면 비용이 들지만, 방치하면 더 큰 손실이 날 수 있습니다.",
          "choices": [
@@ -1079,6 +1160,8 @@ if not st.session_state.started:
         else:
             st.session_state.started = True
             st.session_state.phase = "docked"
+            if st.session_state.get("annual_quest") is None:
+                generate_annual_quest(st.session_state.year)
             st.rerun()
     st.stop()
 
@@ -1108,6 +1191,8 @@ def advance_turn():
     if new_year == old_year:
         return
     st.session_state.year = new_year
+    if st.session_state.get("annual_quest_year") != new_year:
+        generate_annual_quest(new_year)
     animation_ships = []
 
     for ship in list(st.session_state.fleet):
@@ -1164,6 +1249,24 @@ if next_checkpoint is None:
     st.info("모든 중간 점검을 통과했습니다.")
 else:
     st.markdown(f"**다음 점검: {next_checkpoint}년 (배출량 {CHECKPOINTS[next_checkpoint]}% 이하)**")
+# 매년 한 건만 등장하는 선주 긴급 운송 의뢰
+if st.session_state.get("annual_quest") and st.session_state.phase != "ended":
+    quest = st.session_state.annual_quest
+    with st.container(border=True):
+        st.markdown(f"### 📦 {quest['year']}년 선주 긴급 운송 의뢰")
+        st.write(f"**목적지:** {quest['destination']}항  ·  **요구 선박:** {quest['ship_type']}")
+        st.write(f"**의뢰 운임:** {money_label(quest['reward'])}  ·  일반 항해보다 높은 긴급 운송 보상")
+        if quest.get("status") == "open":
+            eligible = [v for v in st.session_state.fleet if v.get("type") == quest["ship_type"] and v.get("status", "docked") == "docked"]
+            if eligible:
+                chosen_id = st.selectbox("의뢰에 투입할 선박", [v["id"] for v in eligible], format_func=lambda sid: next(v["name"] for v in eligible if v["id"] == sid), key=f"quest_ship_{quest['year']}")
+                st.button("긴급 의뢰 수락 및 출항", key=f"accept_quest_{quest['year']}", type="primary", use_container_width=True, on_click=accept_annual_quest, args=(chosen_id,))
+            else:
+                st.warning(f"현재 {quest['ship_type']}이 부산항에 정박해 있지 않아 의뢰를 수락할 수 없습니다. 해당 선박을 보유하고 정박시키면 수락할 수 있습니다.")
+        else:
+            st.info(f"의뢰 수락 완료 · 담당 선박: {next((v['name'] for v in st.session_state.fleet if v['id'] == quest.get('ship_id')), '선박')} · 부산 귀항 후 보상 정산")
+
+
 if st.session_state.phase == "ended":
     if st.session_state.result == "success":
         st.success("🎉 성공! 탄소중립 목표를 달성했습니다.")
@@ -1488,9 +1591,14 @@ with info_col:
             }
             if selected_port in [d["name"] for d in DESTINATIONS]:
                 current_fee, current_benefit = discounted_port_fee(selected_port)
+            elif selected_port in FISHING_GROUNDS:
+                current_fee = 0
+                current_benefit = {"discount_percent": 0, "arrival_bonus": 0, "note": "어장은 정박비가 없습니다."}
             else:
-                current_fee = int(destination.get("fee", 0))
-                current_benefit = {"discount_percent": 0, "arrival_bonus": 0, "note": destination.get("description", "게임용 목적지")}
+                base_fee = int(destination.get("fee", 0))
+                handling = handling_discount_percent()
+                current_fee = round(base_fee * (100 - handling) / 100)
+                current_benefit = {"discount_percent": handling, "arrival_bonus": 0, "note": f"자동화 하역 시스템 {handling}% 할인" if handling else destination.get("description", "게임용 목적지")}
             suffix = " 어장" if selected_port in FISHING_GROUNDS else " 항구"
             st.markdown(f"### 📍 {selected_port}{suffix}  ⌄")
             st.caption(destination.get("code", "목적지 · 항해 경로"))
@@ -1583,23 +1691,37 @@ with eq_tab:
 with tr_tab:
 
     for item in TRANSPORT:
-        bought = item["id"] in st.session_state.bought_tr
-        enough_money = st.session_state.money >= item["price"]
         row = st.columns([4, 1, 1])
-        with row[0]:
-            st.markdown(f"**{item['name']}**")
-            st.caption(f"{item['effect']} · 가격 {money_label(item['price'])}")
-            if not bought and not enough_money:
-                st.caption("자금 부족")
-        with row[1]:
-            if bought:
-                st.button("구매 완료", key=f"tr_done_{item['id']}", disabled=True, use_container_width=True)
-            else:
-                st.button("구매", key=f"tr_{item['id']}",
-                          disabled=(st.session_state.phase == "ended" or not enough_money),
-                          use_container_width=True, on_click=buy_transport, args=(item["id"],))
-        with row[2]:
-            st.write(money_label(item["price"]))
+        if item["id"] == 3:
+            level = int(st.session_state.get("transport_levels", {}).get("handling", 0))
+            prices = [30, 50, 80]
+            next_price = prices[level] * MONEY_SCALE if level < 3 else 0
+            with row[0]:
+                st.markdown(f"**{item['name']}**")
+                st.caption(f"현재 {level}/3단계 · 정박비 {level * 10}% 할인 · 모든 항구 적용, 어장은 무료")
+                st.caption(item["effect"])
+            with row[1]:
+                if level >= 3:
+                    st.button("연구 완료", key="tr_done_3", disabled=True, use_container_width=True)
+                else:
+                    st.button(f"{level + 1}단계", key=f"tr_3_{level}", disabled=(st.session_state.phase == "ended" or st.session_state.money < next_price), use_container_width=True, on_click=buy_transport, args=(3,))
+            with row[2]:
+                st.write("완료" if level >= 3 else money_label(next_price))
+        else:
+            bought = item["id"] in st.session_state.bought_tr
+            enough_money = st.session_state.money >= item["price"]
+            with row[0]:
+                st.markdown(f"**{item['name']}**")
+                st.caption(f"{item['effect']} · 가격 {money_label(item['price'])}")
+                if not bought and not enough_money:
+                    st.caption("자금 부족")
+            with row[1]:
+                if bought:
+                    st.button("구매 완료", key=f"tr_done_{item['id']}", disabled=True, use_container_width=True)
+                else:
+                    st.button("구매", key=f"tr_{item['id']}", disabled=(st.session_state.phase == "ended" or not enough_money), use_container_width=True, on_click=buy_transport, args=(item["id"],))
+            with row[2]:
+                st.write(money_label(item["price"]))
         st.divider()
 with ship_tab:
     st.caption(f"새 선박을 구매하면 회사 선단에 추가됩니다. 현재 {len(st.session_state.fleet)}/{MAX_FLEET_SIZE}척 보유 중이며, 최대 {MAX_FLEET_SIZE}척까지 구매할 수 있습니다. 운항할 선박은 운항 명령 카드의 배정 선박에서 선택할 수 있습니다.")
