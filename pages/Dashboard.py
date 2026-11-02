@@ -1,324 +1,249 @@
 import streamlit as st
 import plotly.graph_objects as go
+from html import escape
 
-# ============================================================
-# 탄소중립 선박 경영 대시보드
-# 주의: 게임 진행 로직은 수정하지 않고, main.py의 세션 상태만 읽습니다.
-# ============================================================
-
-START_YEAR = 2026
-END_YEAR = 2050
-START_EMISSION = 100
+# 청해해운 관제 센터: main.py의 세션 상태를 읽기만 하는 모니터링 페이지
+START_YEAR, END_YEAR, START_EMISSION = 2026, 2050, 100
 CHECKPOINTS = {2030: 80, 2040: 30, 2050: 0}
 
-# main.py의 설비 ID와 동일하게 유지합니다.
-EQUIPMENT = [
-    {"id": 1, "name": "선체 코팅·프로펠러 개선", "price": 15_000_000, "reduction": 10, "effect": "배출량 10%p 감축"},
-    {"id": 2, "name": "폐열 회수 장치", "price": 25_000_000, "reduction": 10, "effect": "배출량 10%p 감축"},
-    {"id": 3, "name": "지상전력공급장치", "price": 30_000_000, "reduction": 10, "effect": "배출량 10%p 감축"},
-    {"id": 4, "name": "풍력 보조 돛", "price": 40_000_000, "reduction": 15, "effect": "배출량 15%p 감축"},
-    {"id": 5, "name": "LNG 이중연료 엔진", "price": 60_000_000, "reduction": 15, "effect": "배출량 15%p 감축"},
-    {"id": 6, "name": "암모니아·메탄올 엔진", "price": 100_000_000, "reduction": 20, "effect": "배출량 20%p 감축"},
-    {"id": 7, "name": "탄소 포집 장치", "price": 130_000_000, "reduction": 20, "effect": "배출량 20%p 감축"},
+RESEARCH = [
+    ("alternative_fuel", "차세대 무탄소 연료 추진 기술", [5, 7, 8], "⚗"),
+    ("capture", "선상 탄소 포집 기술", [4, 6, 8], "♢"),
+    ("efficiency", "에너지 효율 개선 기술", [4, 5, 6], "▱"),
+    ("wind", "풍력 보조 추진 기술", [3, 5, 7], "≋"),
+    ("shore_power", "육상 전력 공급 기술", [3, 5, 7], "⌁"),
+    ("hydrogen", "청정 수소·연료전지 기술", [4, 6, 7], "▣"),
 ]
-
 TRANSPORT = [
-    {"id": 1, "name": "화물 적재함 확장", "price": 20_000_000, "effect": "모든 항해 수익 +10%"},
-    {"id": 2, "name": "대형 선체로 교체", "price": 60_000_000, "effect": "모든 항해 수익 +25%"},
-    {"id": 3, "name": "고속 엔진", "price": 50_000_000, "effect": "항해 기간 1년 단축(최소 1년)"},
-    {"id": 4, "name": "자율운항선박", "price": 100_000_000, "effect": "자동 운항 기능 해금"},
+    (1, "화물 적재함 확장", "모든 항해 수익 +10%"),
+    (2, "대형 선체로 교체", "모든 항해 수익 +25%"),
+    (3, "자동화 하역 시스템", "정박비 할인 연구"),
+    (4, "자율운항선박", "자동 운항 기능 해금"),
 ]
 
+def num(v, default=0):
+    try: return int(v or 0)
+    except (TypeError, ValueError): return default
 
-def money_label(amount):
-    """게임의 원 단위 금액을 만원/억원 단위로 표시합니다."""
-    try:
-        amount = int(amount or 0)
-    except (TypeError, ValueError):
-        amount = 0
-    amount = max(0, amount)
-    eok = amount // 100_000_000
-    man = (amount % 100_000_000) // 10_000
-    if eok and man:
-        return f"{eok}억 {man:,}만원"
-    if eok:
-        return f"{eok}억원"
-    if man:
-        return f"{man:,}만원"
-    return f"{amount:,}원"
+def money(v):
+    v = num(v); sign = "-" if v < 0 else ""; v = abs(v)
+    eok, rem = divmod(v, 100_000_000); man = rem // 10_000
+    if eok and man: return f"{sign}{eok:,}억 {man:,}만원"
+    if eok: return f"{sign}{eok:,}억원"
+    if man: return f"{sign}{man:,}만원"
+    return f"{sign}{v:,}원"
 
+def status(ship):
+    return ship.get("status", ship.get("phase", "docked"))
 
-def phase_label(phase):
-    return {
-        "docked": "부산항 정박 중",
-        "sailing": "목적지로 항해 중",
-        "returning": "부산항으로 귀항 중",
-        "ended": "게임 종료",
-    }.get(phase, "상태 확인 중")
+def status_label(ship):
+    return {"outbound":"항해 중","sailing":"항해 중","returning":"귀항 중","docked":"정박 중"}.get(status(ship),"상태 확인 중")
 
+def status_color(ship):
+    return {"outbound":"#2868bd","sailing":"#2868bd","returning":"#18a596","docked":"#8b98a8"}.get(status(ship),"#8b98a8")
 
-def read_number(key, default=0):
-    try:
-        return int(st.session_state.get(key, default) or 0)
-    except (TypeError, ValueError):
-        return default
+def chart_style(fig):
+    fig.update_layout(height=245, margin=dict(l=5,r=10,t=8,b=8),
+        paper_bgcolor="rgba(0,0,0,0)",plot_bgcolor="rgba(0,0,0,0)",
+        font=dict(color="#173653",size=11),showlegend=False,
+        xaxis=dict(showgrid=False,zeroline=False,tickfont=dict(color="#91a0af")),
+        yaxis=dict(showgrid=True,gridcolor="#e8edf3",zeroline=False,tickfont=dict(color="#91a0af")))
+    return fig
 
-
-# ----------------------------
-# 화면 스타일
-# ----------------------------
-st.markdown(
-    """
-    <style>
-    .block-container {padding-top: 1.5rem; padding-bottom: 2.5rem;}
-    h1, h2, h3, p, label, [data-testid="stMetricLabel"], [data-testid="stMetricValue"] {
-        color: #172b3a;
-    }
-    .dash-hero {
-        padding: 1.35rem 1.5rem; margin-bottom: 1rem; border-radius: 18px;
-        background: linear-gradient(120deg, #e6f7f8 0%, #f2f7ff 55%, #fff8e9 100%);
-        border: 1px solid #d8e7eb;
-    }
-    .dash-hero h1 {margin: 0 0 .35rem 0; color: #123247;}
-    .dash-hero p {margin: 0; color: #486273;}
-    .section-note {color: #5e7280; font-size: .9rem;}
-    div[data-testid="stMetric"] {
-        background: #ffffff; border: 1px solid #e1e9ee; border-radius: 14px;
-        padding: 12px 14px; box-shadow: 0 2px 8px rgba(18,50,71,.04);
-    }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-
-st.markdown(
-    """
-    <div class="dash-hero">
-      <h1>🚢 선박 경영 대시보드</h1>
-      <p>회사의 경영 상태, 탄소 감축 성과, 현재 선박에 적용된 기술을 확인합니다.</p>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
-
-# Dashboard는 main.py의 init()이 만든 세션 상태를 읽기만 합니다.
-# 대시보드를 먼저 열었거나 아직 게임을 시작하지 않았다면 안전하게 안내합니다.
-if "started" not in st.session_state:
-    st.info("게임 상태를 찾을 수 없습니다. 먼저 메인 페이지에서 게임을 시작한 뒤 대시보드를 열어 주세요.")
-    st.stop()
-
+st.set_page_config(page_title="청해해운 관제 센터", page_icon="🚢", layout="wide")
 if not st.session_state.get("started", False):
-    st.info("아직 게임을 시작하지 않았어요. 메인 페이지에서 **게임 시작**을 눌러 주세요.")
+    st.info("게임을 시작하면 관제 센터에서 회사 운영 현황을 확인할 수 있습니다.")
     st.stop()
 
+year = num(st.session_state.get("year"), START_YEAR)
+money_now = num(st.session_state.get("money"))
 phase = st.session_state.get("phase", "docked")
-year = read_number("year", START_YEAR)
-money = read_number("money", 0)
-bought_eq_ids = set(st.session_state.get("bought_eq", []) or [])
-bought_tr_ids = set(st.session_state.get("bought_tr", []) or [])
-history = st.session_state.get("history", []) or []
-event_log = st.session_state.get("event_log", []) or []
-destination = st.session_state.get("dest")
+company = escape(str(st.session_state.get("company_name") or "청해해운"))
+fleet = st.session_state.get("fleet", []) or []
+history = [x for x in (st.session_state.get("history", []) or []) if isinstance(x, dict)]
+events = st.session_state.get("event_log", []) or []
+levels = st.session_state.get("research_levels", {}) or {}
+bought = set(st.session_state.get("bought_tr", []) or [])
+transport_levels = st.session_state.get("transport_levels", {}) or {}
 
-bought_equipment = [item for item in EQUIPMENT if item["id"] in bought_eq_ids]
-bought_transport = [item for item in TRANSPORT if item["id"] in bought_tr_ids]
-total_reduction = sum(item["reduction"] for item in bought_equipment)
-emission = max(0, START_EMISSION - total_reduction)
+reduction, done_stages = 0, 0
+for tid, _, stages, _ in RESEARCH:
+    lv = num(levels.get(tid))
+    if tid == "alternative_fuel":
+        lv = max(lv, num(levels.get("ammonia")), num(levels.get("methanol")))
+    lv = max(0, min(3, lv))
+    done_stages += lv
+    reduction += sum(stages[:lv])
+emission = max(0, START_EMISSION-reduction)
+goal_progress = max(0, min(100, round((START_EMISSION-emission)/START_EMISSION*100)))
 
-# ----------------------------
-# 1. 경영 현황 KPI
-# ----------------------------
-st.subheader("💼 회사 경영 현황")
-k1, k2, k3, k4, k5 = st.columns(5)
-k1.metric("현재 연도", f"{year}년")
-k2.metric("보유 자금", money_label(money))
-k3.metric("현재 탄소 배출량", f"{emission}%")
-k4.metric("보유 감축 설비", f"{len(bought_equipment)}개")
-k5.metric("선박 상태", phase_label(phase))
+st.markdown("""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700;800;900&display=swap');
+.stApp{background:#edf3f9;color:#173653;font-family:'Noto Sans KR',sans-serif}
+[data-testid="stMainBlockContainer"]{max-width:1500px;padding:0 1.35rem 2.5rem}
+.block-container{padding-top:.7rem}
+h1,h2,h3,p,label{color:#173653}
+.dashhead{background:linear-gradient(105deg,#fff 0%,#fff 68%,#f4f8ff 100%);margin:0 -1.35rem 1.4rem;padding:1.1rem 2.7rem 1.3rem;border-bottom:1px solid #dfe7f0}
+.eyebrow{color:#4e7eaf;font-size:11px;letter-spacing:2.4px;font-weight:800}
+.dashtitle{font-size:30px;font-weight:900;letter-spacing:-1.2px;margin-top:7px;color:#153451}
+.sub{color:#8795a4;font-size:12px}
+.live{display:inline-block;border:1px solid #c9eee8;color:#168f83;background:#e9f8f6;border-radius:20px;padding:7px 13px;font-size:11px;font-weight:800}
+.panel{background:white;border:1px solid #dce5ee;border-radius:17px;padding:19px 20px;box-shadow:0 3px 12px #1b395809;margin-bottom:16px}
+.ptitle{font-size:17px;font-weight:850;color:#193b5a}.psub{font-size:11px;color:#98a5b1;margin-top:3px}
+.kpi{height:118px;background:white;border:1px solid #dce5ee;border-radius:16px;padding:17px 19px}
+.kpiblue{background:linear-gradient(120deg,#1553a4,#174987);border:0}
+.kl{font-size:12px;color:#8d9baa}.kv{font-size:27px;font-weight:900;color:#173653;line-height:1.4}
+.kpiblue .kl,.kpiblue .kv{color:white}.kf{font-size:10px;color:#1b9b91;font-weight:700;margin-top:6px}
+.kpiblue .kf{color:#b9d7ff}
+.ship{background:#fbfcfe;border:1px solid #dce5ed;border-left:4px solid var(--c);border-radius:13px;padding:14px;min-height:220px}
+.shiptop{display:flex;justify-content:space-between}.pill{background:var(--bg);color:var(--c);padding:5px 9px;border-radius:20px;font-size:10px;font-weight:800}
+.shipname{font-size:15px;font-weight:850;margin-top:15px;color:#1b3854}.shiptype{font-size:11px;color:#91a0ad}
+.route{display:flex;justify-content:space-between;align-items:center;border-top:1px solid #e7edf2;margin-top:14px;padding-top:12px}
+.rl{font-size:9px;color:#a1acb7}.rp{font-size:11px;font-weight:750;color:#405a70}
+.bar{height:4px;background:#e4ebf1;border-radius:8px;margin-top:13px;overflow:hidden}.bar>div{height:100%;background:var(--c)}
+.foot{display:flex;justify-content:space-between;color:#9aa7b3;font-size:9px;margin-top:7px}
+.ri{display:flex;align-items:center;gap:12px;padding:12px;margin-top:9px;background:#fafbfd;border:1px solid #e1e8ef;border-radius:11px}
+.ri.done{background:#f0faf8;border-color:#ccebe5}.ricon{width:39px;height:39px;flex:0 0 39px;border-radius:10px;background:#eaf2fb;color:#3675b5;display:flex;align-items:center;justify-content:center;font-size:18px}
+.ri.done .ricon{background:#dff5f1;color:#159d90}.rname{font-size:11px;font-weight:800;color:#304b63}.rmeta{font-size:9px;color:#9aa7b2;margin-top:4px}
+.dots{display:flex;gap:4px}.dot{width:15px;height:4px;border-radius:5px;background:#dce4ec}.dot.on{background:#2868b8}.ri.done .dot.on{background:#1aa596}
+.up{display:flex;align-items:center;gap:10px;padding:13px 12px;margin-top:9px;background:#f8fbfe;border:1px solid #dce7f0;border-radius:10px}
+.check{width:30px;height:30px;display:flex;align-items:center;justify-content:center;border-radius:8px;background:#2366b8;color:white;font-weight:900}
+.check.off{background:#edf1f5;color:#b8c1ca}.uname{font-size:11px;font-weight:800;color:#41586d}.umeta{font-size:9px;color:#a0acb7;margin-top:3px}
+.ustate{margin-left:auto;font-size:9px;color:#3474ae;font-weight:800;white-space:nowrap}.ustate.off{color:#aab4be}
+.chartbox{background:#fbfcfe;border:1px solid #e0e8ef;border-radius:14px;padding:15px}
+.ct{font-size:14px;font-weight:800;color:#405970}.cv{font-size:23px;font-weight:900;color:#173653;margin-top:4px}
+.event{background:#fbfcfe;border:1px solid #e1e8ef;border-left:4px solid #2b70bd;border-radius:11px;padding:14px;margin-top:10px;font-size:11px;color:#435b70}
+.analysis{background:linear-gradient(120deg,#164c91,#10386e);border-radius:17px;color:white;padding:22px;min-height:270px}
+.analysis *{color:inherit}.ak{color:#72d6ce;font-size:10px;letter-spacing:2px;font-weight:900}.at{font-size:20px;font-weight:900;margin-top:8px}
+.note{background:#ffffff17;border:1px solid #ffffff20;border-radius:10px;padding:11px;margin-top:9px;font-size:10px;line-height:1.65}
+.note strong{color:#8ce2d8}
+.ringwrap{display:flex;align-items:center;justify-content:center;min-height:145px}
+.ring{width:112px;height:112px;border-radius:50%;background:conic-gradient(#62d7ca calc(var(--p)*1%),#ffffff22 0);display:flex;align-items:center;justify-content:center;position:relative;transform:rotate(-90deg)}
+.ring:before{content:'';position:absolute;inset:9px;border-radius:50%;background:#164783}
+.ringinner{position:relative;transform:rotate(90deg);text-align:center}.rnum{font-size:23px;font-weight:900}.rlabel{font-size:9px;color:#b8d1e9}
+.stTabs [data-baseweb="tab-list"]{gap:4px;background:#eef3f8;border-radius:10px;padding:4px}
+.stTabs [data-baseweb="tab"]{border-radius:8px}
+@media(max-width:800px){.dashtitle{font-size:24px}.dashhead{padding-left:1.2rem;padding-right:1.2rem}.kpi{height:auto;min-height:105px}}
+</style>
+""", unsafe_allow_html=True)
 
-if phase in ("sailing", "returning"):
-    progress = min(100, max(0, int(read_number("pos") / max(1, read_number("total", 1)) * 100)))
-    travel_name = destination or "목적지 확인 중"
-    current_income = read_number("returning_income", read_number("voyage_income", 0))
-    st.info(
-        f"🚢 현재 {travel_name} 항로를 운항 중입니다. 진행도 **{progress}%** · "
-        f"현재 항해 예상 운임 **{money_label(current_income)}**"
-    )
+# 헤더
+st.markdown(f"""<div class="dashhead"><div class="eyebrow">OPERATIONS　—　{year}</div>
+<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+<div><div class="dashtitle">{company} 관제 센터</div><div class="sub">선대 운영과 탄소중립 전환 현황을 실시간으로 관리합니다.</div></div>
+<div style="display:flex;align-items:center;gap:16px"><span class="live">● LIVE</span><span class="sub">{year}년</span></div></div></div>""", unsafe_allow_html=True)
 
-st.divider()
+# KPI
+a,b,c=st.columns(3)
+initial_money=num(history[0].get("money")) if history else money_now
+delta=money_now-initial_money
+prev_em=num(history[-2].get("emission"),START_EMISSION) if len(history)>1 else START_EMISSION
+em_delta=emission-prev_em
+with a: st.markdown(f'<div class="kpi kpiblue"><div class="kl">현재 게임 연도</div><div class="kv">{year}</div><div class="kf">2026 — 2050 탄소중립 항해</div></div>',unsafe_allow_html=True)
+with b: st.markdown(f'<div class="kpi"><div class="kl">현재 보유 자금</div><div class="kv">{money(money_now)}</div><div class="kf">초기 자금 대비 {"+" if delta>=0 else ""}{money(delta)}</div></div>',unsafe_allow_html=True)
+with c: st.markdown(f'<div class="kpi"><div class="kl">현재 탄소 배출량</div><div class="kv">{emission}<span style="font-size:14px"> %</span></div><div class="kf">전 기록 대비 {abs(em_delta)}%p {"감소" if em_delta<0 else "증가" if em_delta>0 else "변화 없음"}</div></div>',unsafe_allow_html=True)
 
-# ----------------------------
-# 2. 탄소 감축 성과와 IMO 목표
-# ----------------------------
-st.subheader("🌱 탄소중립 달성 현황")
-left, right = st.columns([1.65, 1])
+st.markdown("<div style='height:15px'></div>",unsafe_allow_html=True)
 
-with left:
-    if history:
-        years = []
-        emissions = []
-        for item in history:
-            if not isinstance(item, dict):
-                continue
-            try:
-                years.append(int(item.get("year", START_YEAR)))
-                emissions.append(int(item.get("emission", START_EMISSION)))
-            except (TypeError, ValueError):
-                continue
+# 선박 현황
+st.markdown('<div class="panel"><div class="ptitle">⚓ 선박 현황</div><div class="psub">총 보유 선박의 현재 운항 상태를 확인합니다.</div>',unsafe_allow_html=True)
+if fleet:
+    cols=st.columns(min(3,len(fleet)))
+    for i,ship in enumerate(fleet):
+        s=status(ship); color=status_color(ship); bg="#eaf2fb" if s in ("outbound","sailing") else "#e8f8f5" if s=="returning" else "#eef1f4"
+        dest=ship.get("dest") or "목적지 미배정"; current="부산" if s=="docked" else ("항해 중" if s in ("outbound","sailing") else dest)
+        total=max(1,num(ship.get("total"),100)); pos=max(0,num(ship.get("pos")))
+        prog=max(0,min(100,round(pos/total*100))) if s in ("outbound","returning","sailing") else 100
+        if s=="returning": prog=100-prog
+        remain=f"{num(ship.get('years_left'))}년 남음" if s in ("outbound","returning","sailing") else "출항 대기"
+        with cols[i%len(cols)]:
+            st.markdown(f"""<div class="ship" style="--c:{color};--bg:{bg}">
+<div class="shiptop"><span style="font-size:11px;color:#b0bbc5;font-weight:800">{i+1:02d}　🚢</span><span class="pill">{status_label(ship)}</span></div>
+<div class="shipname">{escape(str(ship.get('name','선박')))}</div><div class="shiptype">{escape(str(ship.get('type','선종 미상')))}</div>
+<div class="route"><div><div class="rl">현재 위치</div><div class="rp">{escape(str(current))}</div></div><div style="font-size:21px;color:#8ca3b9">→</div>
+<div style="text-align:right"><div class="rl">목적지</div><div class="rp">{escape(str(dest))}</div></div></div>
+<div class="bar"><div style="width:{prog}%"></div></div><div class="foot"><span>운항 진행률 {prog}%</span><span>{remain}</span></div></div>""",unsafe_allow_html=True)
+else: st.caption("등록된 선박이 없습니다.")
+st.markdown("</div>",unsafe_allow_html=True)
 
-        # 현재 설비 적용 결과도 마지막 지점으로 표시합니다.
-        if not years:
-            years, emissions = [START_YEAR], [START_EMISSION]
-        if years[-1] != year or emissions[-1] != emission:
-            years.append(year)
-            emissions.append(emission)
-
-        fig_emission = go.Figure()
-        fig_emission.add_trace(go.Scatter(
-            x=years, y=emissions, mode="lines+markers", name="실제 배출량",
-            line=dict(color="#168c91", width=3), marker=dict(size=7),
-            hovertemplate="%{x}년<br>배출량 %{y}%<extra></extra>",
-        ))
-        for target_year, target_emission in CHECKPOINTS.items():
-            if target_year < END_YEAR:
-                fig_emission.add_trace(go.Scatter(
-                    x=[target_year, END_YEAR], y=[target_emission, target_emission],
-                    mode="lines", name=f"{target_year}년 목표 {target_emission}%",
-                    line=dict(dash="dash", width=1.5),
-                    hoverinfo="skip",
-                ))
-            else:
-                fig_emission.add_trace(go.Scatter(
-                    x=[target_year], y=[target_emission], mode="markers",
-                    name=f"{target_year}년 목표 {target_emission}%",
-                    marker=dict(symbol="diamond", size=10), hoverinfo="skip",
-                ))
-        fig_emission.update_layout(
-            height=360, margin=dict(l=12, r=12, t=28, b=10),
-            xaxis_title="게임 연도", yaxis_title="탄소 배출량(%)",
-            yaxis=dict(range=[-3, 105], dtick=20),
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
-            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-        )
-        st.plotly_chart(fig_emission, use_container_width=True, config={"displayModeBar": False})
-    else:
-        st.info("아직 탄소 배출량 기록이 없습니다.")
-
-with right:
-    st.markdown("#### IMO 감축 목표")
-    for target_year, target_value in CHECKPOINTS.items():
-        if year >= target_year:
-            status = "달성" if emission <= target_value else "미달성"
-            icon = "✅" if status == "달성" else "❌"
+# 연구 및 업그레이드
+rc,uc=st.columns([1.2,1])
+with rc:
+    st.markdown(f'<div class="panel"><div class="ptitle">⚗️ 탄소 감축 연구</div><div class="psub">회사 전체에 적용되는 6개 연구 기술의 진행 상황</div><div style="text-align:right;color:#8494a5;font-size:10px;font-weight:800">{done_stages} / 18단계 완료</div>',unsafe_allow_html=True)
+    for tid,name,stages,icon in RESEARCH:
+        lv=num(levels.get(tid))
+        if tid=="alternative_fuel": lv=max(lv,num(levels.get("ammonia")),num(levels.get("methanol")))
+        lv=max(0,min(3,lv)); complete=lv==3
+        dots="".join(f'<span class="dot {"on" if j<lv else ""}"></span>' for j in range(3))
+        st.markdown(f'<div class="ri {"done" if complete else ""}"><div class="ricon">{icon}</div><div style="flex:1;min-width:0"><div class="rname">{escape(name)} {"<span style=color:#18a596>●</span>" if complete else ""}</div><div class="rmeta">{"연구 완료" if complete else f"현재 {lv}단계"}</div></div><div style="width:55px"><div class="dots">{dots}</div></div></div>',unsafe_allow_html=True)
+    st.markdown("</div>",unsafe_allow_html=True)
+with uc:
+    st.markdown('<div class="panel"><div class="ptitle">🔧 선박 업그레이드</div><div class="psub">구매한 강화 항목을 확인합니다.</div>',unsafe_allow_html=True)
+    for tid,name,effect in TRANSPORT:
+        if tid==3:
+            lv=max(0,min(3,num(transport_levels.get("handling")))); owned=lv>0
+            detail=f"정박비 {lv*10}% 할인" if owned else effect; state=f"{lv}/3단계" if owned else "미구매"
         else:
-            status = "목표 대기 중"
-            icon = "⏳"
-        st.markdown(
-            f"**{target_year}년**　{icon} {status}  \n"
-            f"목표 배출량: **{target_value}% 이하**"
-        )
-    st.caption(f"최초 배출량 100% → 현재 배출량 {emission}% · 총 감축량 {total_reduction}%p")
+            owned=tid in bought; detail=effect; state="구매 완료" if owned else "미구매"
+        st.markdown(f'<div class="up"><div class="check {"off" if not owned else ""}">{"✓" if owned else "−"}</div><div><div class="uname">{name}</div><div class="umeta">{detail}</div></div><div class="ustate {"off" if not owned else ""}">{state}</div></div>',unsafe_allow_html=True)
+    st.markdown("</div>",unsafe_allow_html=True)
 
-st.divider()
+# 경영 기록
+st.markdown('<div class="panel"><div class="ptitle">📊 경영 기록</div><div class="psub">연도별 핵심 경영 지표 추이</div>',unsafe_allow_html=True)
+tg,th=st.tabs(["지표 그래프","과거 기록"])
+with tg:
+    by_year={}
+    for item in history:
+        by_year[num(item.get("year"),START_YEAR)]=(num(item.get("money")),num(item.get("emission"),START_EMISSION))
+    by_year[year]=(money_now,emission)
+    years=sorted(by_year)
+    mvals=[by_year[y][0]/100_000_000 for y in years]; evals=[by_year[y][1] for y in years]
+    mchange=((mvals[-1]-mvals[0])/mvals[0]*100) if mvals and mvals[0] else 0
+    echange=((evals[-1]-evals[0])/evals[0]*100) if evals and evals[0] else 0
+    l,r=st.columns(2)
+    with l:
+        st.markdown(f'<div class="chartbox"><div class="ct">보유 자금 변화</div><div class="sub">단위: 억 원</div><div class="cv">{money(money_now)}</div><div style="text-align:right;color:#159d90;font-size:10px;font-weight:800">{mchange:+.1f}%</div>',unsafe_allow_html=True)
+        f=go.Figure(go.Scatter(x=years,y=mvals,mode="lines+markers",line=dict(color="#2868b8",width=3),marker=dict(size=7,color="white",line=dict(color="#2868b8",width=2)),fill="tozeroy",fillcolor="rgba(40,104,184,.10)",hovertemplate="%{x}년<br>%{y:,.1f}억 원<extra></extra>"))
+        st.plotly_chart(chart_style(f),use_container_width=True,config={"displayModeBar":False},key="dash_money")
+        st.markdown("</div>",unsafe_allow_html=True)
+    with r:
+        st.markdown(f'<div class="chartbox"><div class="ct">탄소 배출량 변화</div><div class="sub">단위: 게임 배출량(%)</div><div class="cv">{emission}%</div><div style="text-align:right;color:#159d90;font-size:10px;font-weight:800">{echange:+.1f}%</div>',unsafe_allow_html=True)
+        f=go.Figure(go.Scatter(x=years,y=evals,mode="lines+markers",line=dict(color="#1aa596",width=3),marker=dict(size=7,color="white",line=dict(color="#1aa596",width=2)),fill="tozeroy",fillcolor="rgba(26,165,150,.11)",hovertemplate="%{x}년<br>배출량 %{y}%<extra></extra>"))
+        f.update_yaxes(range=[0,105])
+        st.plotly_chart(chart_style(f),use_container_width=True,config={"displayModeBar":False},key="dash_emission")
+        st.markdown("</div>",unsafe_allow_html=True)
+with th:
+    if history:
+        st.dataframe([{"연도":f"{num(x.get('year'),START_YEAR)}년","보유 자금":money(x.get("money")),"탄소 배출량":f"{num(x.get('emission'),START_EMISSION)}%"} for x in reversed(history)],use_container_width=True,hide_index=True)
+    else: st.caption("아직 저장된 경영 기록이 없습니다.")
+st.markdown("</div>",unsafe_allow_html=True)
 
-# ----------------------------
-# 3. 내 선박 현황: 실제 구매한 설비/업그레이드만 표시
-# ----------------------------
-st.subheader("⚓ 내 선박 현황")
-col_eq, col_tr = st.columns(2)
+# 최근 이벤트와 경영 분석
+ec,ac=st.columns([.9,1.1])
+with ec:
+    st.markdown('<div class="panel"><div class="ptitle">♧ 최근 이벤트</div><div class="psub">최근 발생한 주요 경영 이벤트</div>',unsafe_allow_html=True)
+    if events:
+        for entry in reversed(events[-3:]): st.markdown(f'<div class="event">{escape(str(entry))}</div>',unsafe_allow_html=True)
+    else: st.caption("아직 발생한 이벤트가 없습니다.")
+    st.markdown("</div>",unsafe_allow_html=True)
+if phase=="ended":
+    advice=[("최종 상태","게임이 종료되었습니다. 최종 성과는 엔딩 화면에서 확인할 수 있습니다.")]
+else:
+    advice=[]
+    if money_now<20_000_000: advice.append(("자금 흐름","보유 자금이 2,000만원 미만입니다. 다음 항해 전 운영 비용을 고려하세요."))
+    elif money_now>=100_000_000: advice.append(("자금 흐름",f"보유 자금은 {money(money_now)}입니다. 향후 연구 및 선단 운영 계획을 검토할 수 있습니다."))
+    else: advice.append(("자금 흐름","현재 보유 자금과 항해 수익을 바탕으로 안정적인 운영을 이어가고 있습니다."))
+    next_year=next((y for y in sorted(CHECKPOINTS) if year<y),None)
+    if emission==0: advice.append(("탄소 감축","탄소중립 목표를 달성했습니다. 연구 성과가 회사 전체 배출량에 반영되었습니다."))
+    elif next_year:
+        target=CHECKPOINTS[next_year]; advice.append(("탄소 감축",f"{next_year}년 목표는 {target}% 이하입니다. 목표 달성까지 {max(0,emission-target)}%p 추가 감축이 필요합니다."))
+    else: advice.append(("탄소 감축",f"현재 배출량은 {emission}%입니다. 2050년 탄소중립까지 {emission}%p 감축이 필요합니다."))
+with ac:
+    notes="".join(f'<div class="note"><strong>{escape(t)}</strong>　{escape(msg)}</div>' for t,msg in advice)
+    st.markdown(f"""<div class="analysis"><div class="ak">SMART GUIDANCE</div><div class="at">경영 분석</div>
+<div style="display:flex;align-items:center;gap:17px;flex-wrap:wrap;margin-top:12px">
+<div class="ringwrap"><div class="ring" style="--p:{goal_progress}"><div class="ringinner"><div class="rnum">{goal_progress}%</div><div class="rlabel">목표 진행</div></div></div></div>
+<div style="flex:1;min-width:150px"><div style="font-size:10px;color:#b5cee7">탄소 감축 목표</div><div style="font-size:19px;font-weight:900;margin-top:5px">{emission}% 배출</div><div style="font-size:10px;color:#b5cee7;margin-top:4px">현재 목표까지 {remaining_reduction}%p 남음</div></div></div>{notes}</div>""",unsafe_allow_html=True)
 
-with col_eq:
-    st.markdown("#### 🌿 탄소 감축 설비")
-    if bought_equipment:
-        for item in bought_equipment:
-            with st.container(border=True):
-                row1, row2 = st.columns([3, 1])
-                row1.markdown(f"**{item['name']}**")
-                row1.caption(item["effect"])
-                row2.metric("구매 비용", money_label(item["price"]))
-        st.success(f"총 감축량: **{total_reduction}%p** · 현재 배출량: **{emission}%**")
-    else:
-        st.info("아직 구매한 탄소 감축 설비가 없습니다.")
-
-with col_tr:
-    st.markdown("#### 🛠️ 선박 업그레이드")
-    if bought_transport:
-        for item in bought_transport:
-            with st.container(border=True):
-                row1, row2 = st.columns([3, 1])
-                row1.markdown(f"**{item['name']}**")
-                row1.caption(item["effect"])
-                row2.metric("구매 비용", money_label(item["price"]))
-    else:
-        st.info("아직 구매한 선박 업그레이드가 없습니다.")
-
-st.divider()
-
-# ----------------------------
-# 4. 항해/경영 기록
-# main.py에는 완료 항해별 항구 방문 기록이나 누적 항해 시간 기록이
-# 별도로 저장되지 않으므로, 해당 통계는 임의로 만들어 표시하지 않습니다.
-# ----------------------------
-st.subheader("🧭 항해 및 경영 기록")
-record_col, event_col = st.columns([1.25, 1])
-
-with record_col:
-    st.markdown("#### 📉 경영 기록")
-    valid_history = [item for item in history if isinstance(item, dict)]
-    if valid_history:
-        rows = []
-        for index, item in enumerate(valid_history, start=1):
-            rows.append({
-                "기록": index,
-                "연도": f"{item.get('year', START_YEAR)}년",
-                "보유 자금": money_label(item.get("money", 0)),
-                "탄소 배출량": f"{item.get('emission', START_EMISSION)}%",
-            })
-        st.dataframe(rows[::-1], use_container_width=True, hide_index=True)
-        st.caption("최근 기록부터 표시합니다. 이 기록은 게임에서 실제로 저장된 시점의 자금과 배출량입니다.")
-    else:
-        st.info("아직 표시할 경영 기록이 없습니다.")
-
-with event_col:
-    st.markdown("#### ⚠️ 최근 이벤트")
-    if event_log:
-        for log in reversed(event_log[-8:]):
-            st.markdown(f"- {log}")
-    else:
-        st.info("아직 발생한 이벤트가 없습니다.")
-
-st.divider()
-
-# ----------------------------
-# 5. 실제 상태에 따른 경영 코멘트
-# ----------------------------
-st.subheader("🧠 경영 분석")
-comments = []
-next_checkpoint = next((target_year for target_year in sorted(CHECKPOINTS) if target_year not in (st.session_state.get("checked", []) or [])), None)
-
-if emission == 0:
-    comments.append(("success", "🎉 탄소중립 달성! 현재 배출량이 0%입니다."))
-elif next_checkpoint is not None:
-    target_value = CHECKPOINTS[next_checkpoint]
-    if year < next_checkpoint:
-        comments.append(("info", f"📅 다음 점검은 {next_checkpoint}년이며, 목표 배출량은 {target_value}% 이하입니다."))
-    elif emission > target_value:
-        comments.append(("warning", f"⚠️ 현재 배출량 {emission}%가 {next_checkpoint}년 목표 {target_value}%를 초과합니다. 감축 설비를 검토하세요."))
-
-if money < 20_000_000:
-    comments.append(("warning", "💰 보유 자금이 2,000만원 미만입니다. 다음 출항 전 정박 비용과 설비 구매 비용을 함께 고려하세요."))
-elif money >= 100_000_000:
-    comments.append(("info", "💼 보유 자금이 1억원 이상입니다. 장기적인 탄소 감축 투자 계획을 검토할 수 있습니다."))
-
-if not comments:
-    comments.append(("info", "⚓ 항해를 진행하고 설비를 구매하면 실제 게임 기록에 맞춰 경영 분석이 업데이트됩니다."))
-
-for kind, message in comments:
-    if kind == "success":
-        st.success(message)
-    elif kind == "warning":
-        st.warning(message)
-    else:
-        st.info(message)
-
-st.caption("※ 이 대시보드는 현재 게임 세션에 저장된 데이터를 사용합니다. 게임을 새로 시작하거나 세션이 초기화되면 기록도 초기화됩니다.")
+st.caption("※ 관제 센터는 운영 데이터 조회 전용 화면입니다. 출항·귀항·구매·연구 등 게임 조작은 메인 화면에서 진행합니다.")
