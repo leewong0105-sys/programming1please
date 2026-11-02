@@ -597,6 +597,40 @@ def add_history():
     })
 
 
+
+@st.dialog("📦 선주 긴급 운송 의뢰")
+def show_annual_quest_dialog():
+    """해당 연도의 긴급 의뢰를 모달 팝업으로 표시한다."""
+    quest = st.session_state.get("annual_quest")
+    if not quest or quest.get("status") != "open" or st.session_state.phase == "ended":
+        return
+    st.markdown(f"### {quest['year']}년 긴급 운송 요청")
+    st.write(f"**목적지:** {quest['destination']}항")
+    st.write(f"**요구 선박:** {quest['ship_type']}")
+    st.write(f"**긴급 운임:** {money_label(quest['reward'])}")
+    eligible = [v for v in st.session_state.fleet
+                if v.get("type") == quest["ship_type"] and v.get("status", "docked") == "docked"]
+    if eligible:
+        chosen_id = st.selectbox(
+            "의뢰에 투입할 선박", [v["id"] for v in eligible],
+            format_func=lambda sid: next(v["name"] for v in eligible if v["id"] == sid),
+            key=f"quest_ship_popup_{quest['year']}"
+        )
+        left, right = st.columns(2)
+        with left:
+            if st.button("의뢰 수락", key=f"accept_quest_popup_{quest['year']}", type="primary", use_container_width=True):
+                accept_annual_quest(chosen_id)
+                st.rerun()
+        with right:
+            if st.button("거절", key=f"decline_quest_popup_{quest['year']}", use_container_width=True):
+                quest["status"] = "declined"
+                st.rerun()
+    else:
+        st.warning(f"현재 부산항에 정박 중인 {quest['ship_type']}이 없어 수락할 수 없습니다.")
+        if st.button("확인", key=f"close_quest_popup_{quest['year']}", use_container_width=True):
+            quest["status"] = "declined"
+            st.rerun()
+
 def assign_destination(destination_name, ship=None):
     """선택한 정박 선박에 목적지를 배정한다. 실제 출항은 출항 버튼으로 시작한다."""
     ship = ship or selected_ship()
@@ -614,6 +648,9 @@ def assign_destination(destination_name, ship=None):
         return False
     ship["dest"] = destination_name
     st.session_state.selected_port = destination_name
+    # 목적지를 새로 선택하면 이전의 목적지 미선택 경고를 즉시 해제한다.
+    st.session_state.show_empty_destination_warning = False
+    st.session_state.confirm_empty_destination_turn = False
     return True
 
 
@@ -782,7 +819,9 @@ def arrive(ship):
     sync_ship_map_progress(ship)
     ship["event_cooldown"] = 2
     ship["voyage_event_count"] = 0
-    st.session_state.msg = f"{ship['name']} 도착! 정박비 {money_label(port_fee)} 지출. 귀항 날씨: {return_weather['name']}. {fee_note} 운임은 부산 도착 후 정산됩니다."
+    arrival_message = f"{ship['name']} 목적지 도착! 정박비 {money_label(port_fee)} 지출 · 귀항 날씨: {return_weather['name']} · {fee_note} 운임은 부산 도착 후 정산됩니다."
+    previous_feedback = st.session_state.get("return_feedback", "")
+    st.session_state.return_feedback = (previous_feedback + "  " + arrival_message).strip()
 
 
 def settle_return(ship):
@@ -817,7 +856,9 @@ def settle_return(ship):
     sync_ship_map_progress(ship)
     if st.session_state.auto_on:
         st.session_state.auto_idx = (st.session_state.auto_idx + 1) % len(AUTO_ROUTE)
-    st.session_state.return_feedback = f"{ship_name} 부산항 귀항 완료! 운임 {money_label(income)} 지급{quest_note}, 부산항 정박비 {money_label(busan_fee)} 차감."
+    settlement_message = f"{ship_name} 부산항 귀항 완료! 운임 {money_label(income)} 지급{quest_note}, 부산항 정박비 {money_label(busan_fee)} 차감."
+    previous_feedback = st.session_state.get("return_feedback", "")
+    st.session_state.return_feedback = (previous_feedback + "  " + settlement_message).strip()
 
 
 def finish_return(ship):
@@ -1337,24 +1378,6 @@ if next_checkpoint is None:
     st.info("모든 중간 점검을 통과했습니다.")
 else:
     st.markdown(f"**다음 점검: {next_checkpoint}년 (배출량 {CHECKPOINTS[next_checkpoint]}% 이하)**")
-# 매년 한 건만 등장하는 선주 긴급 운송 의뢰
-if st.session_state.get("annual_quest") and st.session_state.phase != "ended":
-    quest = st.session_state.annual_quest
-    with st.container(border=True):
-        st.markdown(f"### 📦 {quest['year']}년 선주 긴급 운송 의뢰")
-        st.write(f"**목적지:** {quest['destination']}항  ·  **요구 선박:** {quest['ship_type']}")
-        st.write(f"**의뢰 운임:** {money_label(quest['reward'])}  ·  일반 항해보다 높은 긴급 운송 보상")
-        if quest.get("status") == "open":
-            eligible = [v for v in st.session_state.fleet if v.get("type") == quest["ship_type"] and v.get("status", "docked") == "docked"]
-            if eligible:
-                chosen_id = st.selectbox("의뢰에 투입할 선박", [v["id"] for v in eligible], format_func=lambda sid: next(v["name"] for v in eligible if v["id"] == sid), key=f"quest_ship_{quest['year']}")
-                st.button("긴급 의뢰 수락 및 출항", key=f"accept_quest_{quest['year']}", type="primary", use_container_width=True, on_click=accept_annual_quest, args=(chosen_id,))
-            else:
-                st.warning(f"현재 {quest['ship_type']}이 부산항에 정박해 있지 않아 의뢰를 수락할 수 없습니다. 해당 선박을 보유하고 정박시키면 수락할 수 있습니다.")
-        else:
-            st.info(f"의뢰 수락 완료 · 담당 선박: {next((v['name'] for v in st.session_state.fleet if v['id'] == quest.get('ship_id')), '선박')} · 부산 귀항 후 보상 정산")
-
-
 # 선박 구매 직후 선택할 선박은 위젯이 생성되기 전에 반영한다.
 _pending_ship_id = st.session_state.pop("pending_selected_ship_id", None)
 if _pending_ship_id is not None:
@@ -1562,19 +1585,27 @@ with map_col:
             if selected_points:
                 point = selected_points[-1]
                 point_index = point.get("point_index", point.get("pointIndex"))
-                port_names = ["부산"] + [d["name"] for d in DESTINATIONS] + list(SPECIAL_PORTS) + list(FISHING_GROUNDS)
-                if point_index is not None and 0 <= int(point_index) < len(port_names):
-                    picked = port_names[int(point_index)]
-                    st.session_state.selected_port = None if picked == "부산" else picked
-                    if picked != "부산":
-                        assign_destination(picked, selected_ship())
+                # Scattermap 이벤트에서는 customdata가 더 안정적으로 전달되므로 우선 사용한다.
+                picked = point.get("customdata")
+                if isinstance(picked, (list, tuple)):
+                    picked = picked[0] if picked else None
+                if not picked and point_index is not None:
+                    pin_names = ["부산"] + [d["name"] for d in DESTINATIONS]
+                    if 0 <= int(point_index) < len(pin_names):
+                        picked = pin_names[int(point_index)]
+                if picked:
+                    if picked == "부산":
+                        st.session_state.selected_port = None
+                        st.session_state.show_empty_destination_warning = False
+                    elif assign_destination(picked, selected_ship()):
+                        st.session_state.show_empty_destination_warning = False
         except (AttributeError, TypeError, KeyError, ValueError):
             pass
 
 
     if st.session_state.get("show_empty_destination_warning", False):
         st.markdown("<div style='background:#fff1f2;border:1px solid #ef4444;color:#b91c1c;padding:12px 14px;border-radius:10px;font-weight:700;margin:8px 0'>⚠️ 아직 목적지를 선택하지 않았습니다. 정말 진행하시겠습니까?</div>", unsafe_allow_html=True)
-        # 경고가 표시된 상태에서 다시 누르면 목적지 없이도 진행 가능
+        # 목적지를 선택하면 assign_destination()에서 이 경고가 즉시 해제된다.
         if st.button("그래도 다음 해로 진행", key="confirm_empty_destination_turn_button", type="primary", use_container_width=True, disabled=(st.session_state.phase == "ended")):
             st.session_state.confirm_empty_destination_turn = True
             advance_turn()
@@ -1588,6 +1619,11 @@ with map_col:
     if st.session_state.get("return_feedback"):
         st.success(st.session_state.return_feedback)
     st.caption(f"버튼 한 번에 {TURN_YEARS}년 진행합니다. 항해 준비 중에는 시간이 흐르지 않습니다.")
+    # 긴급 의뢰는 메인 상단을 차지하지 않고, 턴 버튼과 초록색 알림 아래에서만 팝업으로 표시한다.
+    if (st.session_state.get("annual_quest")
+            and st.session_state.annual_quest.get("status") == "open"
+            and st.session_state.phase != "ended"):
+        show_annual_quest_dialog()
 
 with info_col:
     current_ship = selected_ship()
