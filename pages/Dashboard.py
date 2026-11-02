@@ -76,6 +76,11 @@ for tid, _, stages, _ in RESEARCH:
     reduction += sum(stages[:lv])
 emission = max(0, START_EMISSION-reduction)
 goal_progress = max(0, min(100, round((START_EMISSION-emission)/START_EMISSION*100)))
+next_checkpoint_year = next((y for y in sorted(CHECKPOINTS) if year < y), None)
+remaining_reduction = (
+    max(0, emission - CHECKPOINTS[next_checkpoint_year])
+    if next_checkpoint_year is not None else emission
+)
 
 st.markdown("""
 <style>
@@ -118,10 +123,6 @@ h1,h2,h3,p,label{color:#173653}
 .analysis *{color:inherit}.ak{color:#72d6ce;font-size:10px;letter-spacing:2px;font-weight:900}.at{font-size:20px;font-weight:900;margin-top:8px}
 .note{background:#ffffff17;border:1px solid #ffffff20;border-radius:10px;padding:11px;margin-top:9px;font-size:10px;line-height:1.65}
 .note strong{color:#8ce2d8}
-.ringwrap{display:flex;align-items:center;justify-content:center;min-height:145px}
-.ring{width:112px;height:112px;border-radius:50%;background:conic-gradient(#62d7ca calc(var(--p)*1%),#ffffff22 0);display:flex;align-items:center;justify-content:center;position:relative;transform:rotate(-90deg)}
-.ring:before{content:'';position:absolute;inset:9px;border-radius:50%;background:#164783}
-.ringinner{position:relative;transform:rotate(90deg);text-align:center}.rnum{font-size:23px;font-weight:900}.rlabel{font-size:9px;color:#b8d1e9}
 .stTabs [data-baseweb="tab-list"]{gap:4px;background:#eef3f8;border-radius:10px;padding:4px}
 .stTabs [data-baseweb="tab"]{border-radius:8px}
 @media(max-width:800px){.dashtitle{font-size:24px}.dashhead{padding-left:1.2rem;padding-right:1.2rem}.kpi{height:auto;min-height:105px}}
@@ -241,9 +242,33 @@ else:
     else: advice.append(("탄소 감축",f"현재 배출량은 {emission}%입니다. 2050년 탄소중립까지 {emission}%p 감축이 필요합니다."))
 with ac:
     notes="".join(f'<div class="note"><strong>{escape(t)}</strong>　{escape(msg)}</div>' for t,msg in advice)
-    st.markdown(f"""<div class="analysis"><div class="ak">SMART GUIDANCE</div><div class="at">경영 분석</div>
-<div style="display:flex;align-items:center;gap:17px;flex-wrap:wrap;margin-top:12px">
-<div class="ringwrap"><div class="ring" style="--p:{goal_progress}"><div class="ringinner"><div class="rnum">{goal_progress}%</div><div class="rlabel">목표 진행</div></div></div></div>
-<div style="flex:1;min-width:150px"><div style="font-size:10px;color:#b5cee7">탄소 감축 목표</div><div style="font-size:19px;font-weight:900;margin-top:5px">{emission}% 배출</div><div style="font-size:10px;color:#b5cee7;margin-top:4px">현재 목표까지 {remaining_reduction}%p 남음</div></div></div>{notes}</div>""",unsafe_allow_html=True)
+    st.markdown('<div class="analysis"><div class="ak">SMART GUIDANCE</div><div class="at">경영 분석</div>', unsafe_allow_html=True)
+    ring_col, summary_col = st.columns([1, 1.25], vertical_alignment="center")
+    with ring_col:
+        ring = go.Figure(go.Pie(
+            values=[goal_progress, 100-goal_progress], hole=0.76,
+            marker=dict(colors=["#62d7ca", "rgba(255,255,255,0.16)"], line=dict(width=0)),
+            sort=False, direction="clockwise",
+            hovertemplate="%{label}: %{value}%<extra></extra>",
+            labels=["감축 진행", "남은 비율"], textinfo="none",
+        ))
+        ring.update_layout(
+            height=165, margin=dict(l=0, r=0, t=0, b=0),
+            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+            showlegend=False, font=dict(color="white"),
+            annotations=[dict(text=f"<b>{goal_progress}%</b><br><span style='font-size:10px'>목표 진행</span>",
+                              x=0.5, y=0.5, showarrow=False, font=dict(size=20, color="white"))],
+        )
+        st.plotly_chart(ring, use_container_width=True, config={"displayModeBar": False}, key="dash_goal_ring")
+    with summary_col:
+        st.markdown(
+            f'<div style="padding:12px 2px;color:white">'
+            f'<div style="font-size:10px;color:#b5cee7">탄소 감축 목표</div>'
+            f'<div style="font-size:19px;font-weight:900;margin-top:5px">{emission}% 배출</div>'
+            f'<div style="font-size:10px;color:#b5cee7;margin-top:4px">현재 목표까지 {remaining_reduction}%p 남음</div>'
+            f'</div>', unsafe_allow_html=True
+        )
+    st.markdown(notes, unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
 
 st.caption("※ 관제 센터는 운영 데이터 조회 전용 화면입니다. 출항·귀항·구매·연구 등 게임 조작은 메인 화면에서 진행합니다.")
