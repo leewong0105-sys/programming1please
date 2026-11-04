@@ -90,6 +90,15 @@ FISHING_GROUNDS = {
 
 CHECKPOINTS = {2030: 80, 2040: 30, 2050: 0}
 
+# 단골 항구 등급 기준: 방문 횟수와 정박비 할인율(%)
+PORT_TIER_RULES = [
+    {"name": "일반", "min_visits": 0, "discount": 0},
+    {"name": "단골", "min_visits": 3, "discount": 10},
+    {"name": "우수", "min_visits": 7, "discount": 20},
+    {"name": "파트너", "min_visits": 12, "discount": 30},
+]
+
+
 # 실제 지리 좌표: 위도, 경도
 PORT_COORDS = {
     "부산": (35.1796, 129.0756),
@@ -127,6 +136,7 @@ def new_ship_state(ship_id, name, ship_type, price):
         "years_left": 0, "leg_years": 0, "trip_elapsed": 0, "waiting_for_turn": False, "pos": 0, "total": 0,
         "weather": None, "weather_note": "", "voyage_income": 0,
         "returning_income": 0, "port_fee_paid": 0,
+        "loyalty_discount_paid": 0,
         "last_event_title": None,
         "voyage_event_count": 0, "event_log": [], "emergency_quest_bonus": 0, "emergency_quest_year": None,
     }
@@ -248,6 +258,7 @@ def init():
         "company_name": "노스스타 해운",
         "captain_name": "선장",
         "unlocked_special_ports": [],
+        "port_visits": port_visit_defaults(),
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -258,6 +269,11 @@ def init():
         st.session_state.annual_quest = None
     if "annual_quest_year" not in st.session_state:
         st.session_state.annual_quest_year = None
+    if "port_visits" not in st.session_state:
+        st.session_state.port_visits = port_visit_defaults()
+    else:
+        for port_name in port_visit_defaults():
+            st.session_state.port_visits.setdefault(port_name, 0)
     ensure_fleet_fields()
 
 
@@ -302,10 +318,35 @@ def reset_game():
         "company_name": "노스스타 해운",
         "captain_name": "선장",
         "unlocked_special_ports": [],
+        "port_visits": port_visit_defaults(),
     }
     for key, value in defaults.items():
         st.session_state[key] = value.copy() if isinstance(value, (list, dict)) else value
     ensure_fleet_fields()
+
+
+def get_tier(visits):
+    """누적 방문 횟수에 해당하는 단골 항구 등급을 반환한다."""
+    tier = PORT_TIER_RULES[0]
+    for rule in PORT_TIER_RULES:
+        if int(visits) >= rule["min_visits"]:
+            tier = rule
+    return tier
+
+
+def get_discounted_berth_fee(port, fee):
+    """기존 혜택 적용 후 정박비에 단골 할인을 적용하고 만원 단위로 반올림한다."""
+    visits = st.session_state.get("port_visits", {}).get(port, 0)
+    discount = get_tier(visits)["discount"]
+    discounted_fee = int(round(int(fee) * (100 - discount) / 100 / 10_000) * 10_000)
+    return discounted_fee
+
+
+def port_visit_defaults():
+    """일반 항구·특수 터미널·어장의 방문 횟수 초기값을 만든다."""
+    names = ([item["name"] for item in DESTINATIONS]
+             + list(SPECIAL_PORTS.keys()) + list(FISHING_GROUNDS.keys()))
+    return {name: 0 for name in names}
 
 
 def money_label(amount):
@@ -697,7 +738,8 @@ def start_voyage(destination_name, ship=None):
         "weather": weather["name"], "weather_note": weather["description"],
         "voyage_income": round(actual_income(destination_name, ship) * weather["income_rate"]),
         "income_weather_rate": weather["income_rate"],
-        "port_fee_paid": 0, "returning_income": round(actual_income(destination_name, ship) * weather["income_rate"]),
+        "port_fee_paid": 0, "loyalty_discount_paid": 0,
+        "returning_income": round(actual_income(destination_name, ship) * weather["income_rate"]),
         "voyage_event_count": 0,
     })
     set_ship_status(ship, "outbound")
@@ -784,6 +826,10 @@ def arrive(ship):
         discount = handling_discount_percent()
         port_fee = round(base_fee * (100 - discount) / 100)
         benefit = {"discount_percent": discount, "arrival_bonus": 0, "note": f"자동화 하역 시스템 {discount}% 할인" if discount else destination.get("description", "게임용 목적지")}
+    fee_before_loyalty = int(port_fee)
+    port_fee = get_discounted_berth_fee(destination_name, fee_before_loyalty)
+    loyalty_discount = fee_before_loyalty - int(port_fee)
+    ship["loyalty_discount_paid"] = int(ship.get("loyalty_discount_paid", 0)) + loyalty_discount
     st.session_state.money -= int(port_fee)
     ship["port_fee_paid"] = int(ship.get("port_fee_paid", 0)) + int(port_fee)
     fee_note = benefit["note"]
@@ -811,7 +857,8 @@ def arrive(ship):
     set_ship_status(ship, "returning")
     sync_ship_map_progress(ship)
     ship["voyage_event_count"] = 0
-    arrival_message = f"{ship['name']} 목적지 도착! 정박비 {money_label(port_fee)} 지출 · 귀항 날씨: {return_weather['name']} · {fee_note} 운임은 부산 도착 후 정산됩니다."
+    loyalty_note = f" · 단골 할인 {money_label(loyalty_discount)}" if loyalty_discount else ""
+    arrival_message = f"{ship['name']} 목적지 도착! 정박비 {money_label(port_fee)} 지출{loyalty_note} · 귀항 날씨: {return_weather['name']} · {fee_note} 운임은 부산 도착 후 정산됩니다."
     previous_feedback = st.session_state.get("return_feedback", "")
     st.session_state.return_feedback = (previous_feedback + "  " + arrival_message).strip()
 
@@ -829,6 +876,16 @@ def settle_return(ship):
     st.session_state.money += income
     st.session_state.voyage_count = int(st.session_state.get("voyage_count", 0)) + 1
     st.session_state.cumulative_voyage_income = int(st.session_state.get("cumulative_voyage_income", 0)) + income
+    destination_name = ship.get("dest")
+    tier_message = ""
+    if destination_name:
+        visits = st.session_state.port_visits.get(destination_name, 0)
+        old_tier = get_tier(visits)
+        st.session_state.port_visits[destination_name] = visits + 1
+        new_tier = get_tier(visits + 1)
+        if new_tier["name"] != old_tier["name"]:
+            tier_message = (f" {destination_name}항 {new_tier['name']} 등급 달성 "
+                            f"(정박비 {new_tier['discount']}% 할인).")
     add_history()
     ship_name = ship.get("name", "선박")
     quest_note = f" (긴급 의뢰 보상 포함 +{money_label(quest_bonus)})" if quest_bonus else ""
@@ -839,7 +896,12 @@ def settle_return(ship):
                  "emergency_quest_bonus": 0, "emergency_quest_year": None})
     set_ship_status(ship, "docked")
     sync_ship_map_progress(ship)
-    settlement_message = f"{ship_name} 부산항 귀항 완료! 운임 {money_label(income)} 지급{quest_note}, 부산항 정박비 {money_label(busan_fee)} 차감."
+    loyalty_discount_paid = int(ship.get("loyalty_discount_paid", 0) or 0)
+    ship["loyalty_discount_paid"] = 0
+    settlement_message = (f"{ship_name} 부산항 귀항 완료! 운임 {money_label(income)} 지급{quest_note}, "
+                          f"부산항 정박비 {money_label(busan_fee)} 차감. "
+                          f"단골 할인 -{money_label(loyalty_discount_paid)}.")
+    settlement_message += tier_message
     previous_feedback = st.session_state.get("return_feedback", "")
     st.session_state.return_feedback = (previous_feedback + "  " + settlement_message).strip()
 
@@ -1371,7 +1433,7 @@ def advance_turn():
 
     # 이번 턴에 항해한 선박을 기준으로, 정산 여부와 관계없이 최대 1건 발생시킨다.
     if (st.session_state.get("event_pending") is None and event_ship_snapshots
-            and random.random() < 1.00):  # 테스트용: 이벤트 발생 확률 100%
+            and random.random() < 0.30):  # 이벤트 발생 확률 30%
         trigger_random_event(random.choice(event_ship_snapshots))
 
     st.session_state.turn_animation_ships = animation_ships
@@ -1718,8 +1780,15 @@ with info_col:
                 handling = handling_discount_percent()
                 current_fee = round(base_fee * (100 - handling) / 100)
                 current_benefit = {"discount_percent": handling, "arrival_bonus": 0, "note": f"자동화 하역 시스템 {handling}% 할인" if handling else destination.get("description", "게임용 목적지")}
+            fee_before_loyalty = int(current_fee)
+            current_fee = get_discounted_berth_fee(selected_port, fee_before_loyalty)
+            loyalty_discount_amount = fee_before_loyalty - current_fee
+            visit_count = st.session_state.port_visits.get(selected_port, 0)
+            current_tier = get_tier(visit_count)
+            next_tier = next((rule for rule in PORT_TIER_RULES if rule["min_visits"] > visit_count), None)
             suffix = " 어장" if selected_port in FISHING_GROUNDS else " 항구"
-            st.markdown(f"### 📍 {selected_port}{suffix}  ⌄")
+            st.markdown(f"### 📍 {selected_port}{suffix}  <span style='font-size:0.72em;background:#e8eefc;color:#2454a6;padding:4px 8px;border-radius:12px'>{current_tier['name']}</span>", unsafe_allow_html=True)
+            st.caption(f"누적 방문 {visit_count}회" + (f" · 다음 등급까지 {next_tier['min_visits'] - visit_count}회" if next_tier else " · 최고 등급"))
             st.caption(destination.get("code", "목적지 · 항해 경로"))
             st.markdown("<div style='height:1px;background:#e5e7eb;margin:12px 0'></div>", unsafe_allow_html=True)
             st.caption("배정 선박")
@@ -1732,7 +1801,12 @@ with info_col:
             estimate_cols[1].caption("₩  예상 수익")
             estimate_cols[1].markdown(f"**{money_label(income)}**")
             st.markdown("<div style='height:1px;background:#e5e7eb;margin:12px 0'></div>", unsafe_allow_html=True)
-            st.caption(f"⚓ 적용 정박비  **{money_label(current_fee)}**" + (f" · {current_benefit['discount_percent']}% 감면" if current_benefit["discount_percent"] else ""))
+            st.markdown(
+                f"⚓ 원래 정박비 <del>{money_label(destination.get('fee', 0))}</del> → "
+                f"**{money_label(current_fee)}**"
+                + (f" · 단골 할인 {current_tier['discount']}%" if current_tier["discount"] else ""),
+                unsafe_allow_html=True,
+            )
             st.write(features.get(selected_port, destination.get("description", "게임용 목적지입니다.")))
             st.info(f"**게임 내 혜택:** {current_benefit['note'] or '현재 적용 가능한 별도 혜택 없음'}")
             official_sources = {
@@ -1742,7 +1816,7 @@ with info_col:
             }
             if selected_port in official_sources:
                 st.markdown(f"[항만 공식 출처 보기]({official_sources[selected_port]})")
-            st.caption(f"기본 정박비 {money_label(destination['fee'])} · 혜택 적용 후 {money_label(current_fee)}. 부산항 정박비는 별도이며 운임은 부산 귀항 후 지급됩니다. 실제 항만 요금과 자격 조건을 참고해 단순화한 게임 규칙입니다.")
+            st.caption(f"기존 혜택 적용 후 {money_label(fee_before_loyalty)} · 단골 할인 {money_label(loyalty_discount_amount)}. 부산항 정박비는 별도이며 운임은 부산 귀항 후 지급됩니다. 실제 항만 요금과 자격 조건을 참고해 단순화한 게임 규칙입니다.")
             departure_label = f"🎣 {selected_port} 조업 출항" if selected_port in FISHING_GROUNDS else "🚢 출항 명령  ›"
             if st.button(departure_label, key="selected_port_depart", disabled=not can_choose, use_container_width=True, type="primary"):
                 start_voyage(selected_port)
