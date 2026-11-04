@@ -52,7 +52,7 @@
 
 별도의 프로그램 설치 없이 웹 브라우저에서 아래 링크에 접속하면 게임을 실행할 수 있습니다.
 
-🔗 게임 바로가기: [Streamlit 앱 링크 삽입 예정]
+🔗 게임 바로가기: [https://programming1please-happy.streamlit.app/]
 
 PC와 모바일 환경에서 웹 브라우저를 통해 이용할 수 있습니다.
 
