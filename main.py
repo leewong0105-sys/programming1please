@@ -11,7 +11,7 @@ import plotly.graph_objects as go
 START_YEAR = 2026
 END_YEAR = 2050
 MONEY_SCALE = 1_000_000  # 게임 금액 1단위 = 100만 원
-START_MONEY = 10000 * MONEY_SCALE  # 시작 자금 100억원
+START_MONEY = 80 * MONEY_SCALE  # 시작 자금 8,000만원
 START_EMISSION = 100
 TURN_YEARS = 1  # 다음 해로 버튼 한 번에 진행할 게임 연수
 MAX_FLEET_SIZE = 5  # 회사가 보유할 수 있는 최대 선박 수
@@ -721,25 +721,21 @@ def start_voyage(destination_name, ship=None):
         return
     duration = actual_years(destination_name)
     weather_options = [
-        {"name": "순풍", "income_rate": 1.05,
-         "description": "순풍을 만났습니다! 운임이 5% 증가합니다."},
-        {"name": "잔잔한 바다", "income_rate": 1.0,
-         "description": "바다가 잔잔합니다. 운임에 변화가 없습니다."},
-        {"name": "짙은 안개", "income_rate": 1.0,
-         "description": "짙은 안개가 끼었지만 운임에는 변화가 없습니다."},
-        {"name": "폭풍", "income_rate": 0.90,
-         "description": "폭풍으로 운임이 10% 감소합니다."},
+        {"name": "순풍", "description": "순풍이 불고 있습니다. 운항 조건이 양호합니다."},
+        {"name": "잔잔한 바다", "description": "바다가 잔잔합니다. 안정적인 운항 조건입니다."},
+        {"name": "짙은 안개", "description": "시야가 제한됩니다. 부정적인 해상 사건에 유의하세요."},
+        {"name": "폭풍", "description": "기상이 악화되었습니다. 부정적인 해상 사건에 특히 유의하세요."},
     ]
-    weather = random.choices(weather_options, weights=[2, 3, 3, 3], k=1)[0]
+    weather = random.choices(weather_options, weights=[4, 4, 1, 1], k=1)[0]
     ship.update({
         "dest": destination_name, "years_left": max(1, int(duration)),
         "leg_years": max(1, int(duration)), "trip_elapsed": 0,
         "waiting_for_turn": True,
         "weather": weather["name"], "weather_note": weather["description"],
-        "voyage_income": round(actual_income(destination_name, ship) * weather["income_rate"]),
-        "income_weather_rate": weather["income_rate"],
+        "voyage_income": actual_income(destination_name, ship),
+        "income_weather_rate": 1.0,
         "port_fee_paid": 0, "loyalty_discount_paid": 0,
-        "returning_income": round(actual_income(destination_name, ship) * weather["income_rate"]),
+        "returning_income": actual_income(destination_name, ship),
         "voyage_event_count": 0,
     })
     set_ship_status(ship, "outbound")
@@ -839,17 +835,16 @@ def arrive(ship):
     add_history()
 
     return_weather_options = [
-        {"name": "순풍", "income_rate": 1.05, "description": "귀항 중 순풍으로 운임이 5% 증가합니다."},
-        {"name": "잔잔한 바다", "income_rate": 1.00, "description": "귀항 중 바다가 잔잔합니다."},
-        {"name": "짙은 안개", "income_rate": 1.00, "description": "귀항 중 짙은 안개가 끼었지만 운임 변화는 없습니다."},
-        {"name": "폭풍", "income_rate": 0.90, "description": "귀항 중 폭풍으로 운임이 10% 감소합니다."},
+        {"name": "순풍", "description": "귀항 중 순풍이 불고 있습니다."},
+        {"name": "잔잔한 바다", "description": "귀항 중 바다가 잔잔합니다."},
+        {"name": "짙은 안개", "description": "귀항 중 시야가 제한됩니다. 부정적인 해상 사건에 유의하세요."},
+        {"name": "폭풍", "description": "귀항 중 기상이 악화되었습니다. 부정적인 해상 사건에 특히 유의하세요."},
     ]
-    return_weather = random.choices(return_weather_options, weights=[2, 3, 3, 3], k=1)[0]
+    return_weather = random.choices(return_weather_options, weights=[4, 4, 1, 1], k=1)[0]
     ship["weather"] = return_weather["name"]
     ship["weather_note"] = return_weather["description"]
-    if return_weather["income_rate"] != 1:
-        ship["returning_income"] = round(ship.get("returning_income", 0) * return_weather["income_rate"])
-        ship["income_weather_rate"] = float(ship.get("income_weather_rate", 1.0)) * return_weather["income_rate"]
+    # 날씨는 운임을 변경하지 않고, 이후 부정적 사건의 발생 가중치에만 영향을 준다.
+    ship["income_weather_rate"] = 1.0
     return_duration = max(1, actual_years(destination_name))
     # 왕복 전체 기간을 유지한다. 여기서 편도 기간을 다시 더하지 않는다.
     ship["years_left"] = max(0, int(ship.get("years_left", return_duration)))
@@ -867,7 +862,7 @@ def settle_return(ship):
     """부산항 귀항 후 해당 선박만 정산한다. 연도/점검은 통합 시계만 담당한다."""
     if not ship or ship.get("status", ship.get("phase")) != "returning":
         return
-    # 출항 시 적용한 선종·운송 강화·날씨와 항해 중 이벤트 운임 조정을 그대로 정산한다.
+    # 출항 시 적용한 선종·운송 강화와 항해 중 이벤트 운임 조정을 그대로 정산한다.
     income = int(ship.get("returning_income", 0) or 0)
     busan_fee = round(1 * MONEY_SCALE * (100 - handling_discount_percent()) / 100)
     st.session_state.money -= busan_fee
@@ -970,7 +965,7 @@ def trigger_random_event(ship=None):
         return
 
     events = [
-        {"title": "엔진 이상 경고", "condition": event_condition_always,
+        {"title": "엔진 이상 경고", "negative": True, "condition": event_condition_always,
          "description": "엔진에 이상 징후가 감지됐습니다. 점검할지, 운항을 강행할지 선택하세요.",
          "choices": [
              {"label": "긴급 점검 (운임 -5%)", "effect": "income_percent", "percent": -5,
@@ -978,7 +973,7 @@ def trigger_random_event(ship=None):
              {"label": "운항 강행", "success_chance": 0.65, "success_delta": 0, "fail_percent": -12,
               "success": "엔진이 정상적으로 작동했습니다. 추가 손실 없이 항해합니다.",
               "failure": "엔진 이상으로 운임의 12%에 해당하는 수리 비용이 발생했습니다."}]},
-        {"title": "해적 위험 경보", "condition": event_condition_always,
+        {"title": "해적 위험 경보", "negative": True, "condition": event_condition_always,
          "description": "의심 선박이 감지됐습니다. 호위를 요청할지, 위험을 감수하고 항로를 유지할지 선택하세요.",
          "choices": [
              {"label": "보안 호위 요청 (운임 -5%)", "effect": "income_percent", "percent": -5,
@@ -999,7 +994,7 @@ def trigger_random_event(ship=None):
          "choices": [
              {"label": "시범 연구 수락", "effect": "free_research_chance", "success_chance": 0.5},
              {"label": "거절", "delta": 0, "result": "시범 연구 제안을 거절했습니다. 변화는 없습니다."}]},
-        {"title": "항만 파업", "condition": event_condition_strike,
+        {"title": "항만 파업", "negative": True, "condition": event_condition_strike,
          "description": "목적지 항만에서 파업이 발생했습니다. 대기하거나 우회 하역을 선택할 수 있습니다.",
          "choices": [
              {"label": "파업 종료 대기 (운임 -10%)", "effect": "income_percent", "percent": -10},
@@ -1012,7 +1007,10 @@ def trigger_random_event(ship=None):
     candidates = [e for e in events if e["title"] != last_title and e["condition"](ship)]
     if not candidates:
         return
-    event = random.choice(candidates).copy()
+    adverse_weather = ship.get("weather") in ("짙은 안개", "폭풍")
+    # 악천후는 전체 이벤트 발생률(턴당 30%)이 아니라 부정적 이벤트의 상대 가중치만 높인다.
+    weights = [3 if adverse_weather and event.get("negative", False) else 1 for event in candidates]
+    event = random.choices(candidates, weights=weights, k=1)[0].copy()
     event["ship_id"] = ship["id"]
     event["ship_name"] = ship["name"]
     event["ship_type"] = ship["type"]
@@ -1100,6 +1098,23 @@ def resolve_event(choice_index):
         st.session_state.phase = "ended"
         st.session_state.result = "success"
         st.session_state.msg += " 회사 전체 배출량 0% 달성! 탄소중립 성공!"
+
+
+@st.dialog("⚠️ 긴급 해상 이벤트", dismissible=False)
+def show_event_dialog():
+    """미해결 해상 사건을 모달 팝업으로 표시한다."""
+    event = st.session_state.get("event_pending")
+    if not event or st.session_state.phase == "ended":
+        return
+    st.subheader(f"⚠️ {event['title']}")
+    st.caption(f"발생 선박: {event.get('ship_name', '선박')} · {event.get('ship_type', '선종 미상')}")
+    st.write(event["description"])
+    for i, choice in enumerate(event["choices"]):
+        st.button(
+            choice["label"], key=f"event_modal_choice_{event['title']}_{i}",
+            use_container_width=True, type="primary" if i == 0 else "secondary",
+            on_click=resolve_event, args=(i,)
+        )
 
 
 def route_position(route, fraction):
@@ -1269,6 +1284,7 @@ if not st.session_state.started:
 # =========================
 if st.session_state.phase == "ended":
     company = html.escape(str(st.session_state.get("company_name", "해운 회사")))
+    captain = html.escape(str(st.session_state.get("captain_name", "선주")))
     emission = int(current_emission())
     reduction_rate = max(0, min(100, round((START_EMISSION - emission) / max(1, START_EMISSION) * 100)))
     final_money = money_label(st.session_state.money)
@@ -1330,7 +1346,7 @@ if st.session_state.phase == "ended":
 @media(max-width:700px){{.end-hero{{grid-template-columns:1fr}}.end-hero-copy{{padding:30px 24px}}.end-hero-image{{min-height:190px}}.end-carbon-grid{{grid-template-columns:1fr 1fr}}.end-carbon-progress{{grid-column:1/-1;grid-row:2}}.end-bottom-grid{{grid-template-columns:1fr}}.end-bottom-card+.end-bottom-card{{border-left:0;border-top:1px solid #e1e7ed}}.end-topbar{{align-items:flex-start;flex-direction:column}}}}
 </style>
 <div class="end-wrap">
- <div class="end-topbar"><div class="end-brand">{company}<small>NET ZERO VOYAGE</small></div><div class="end-status">● &nbsp;{status_label}</div></div>
+ <div class="end-topbar"><div class="end-brand">{company}<small>NET ZERO VOYAGE</small><div style="font-size:11px;letter-spacing:0;color:#718096;font-weight:600;margin-top:7px">선주 · {captain}</div></div><div class="end-status">● &nbsp;{status_label}</div></div>
  <div class="end-hero"><div class="end-hero-copy"><div class="end-eyebrow">THE FINAL PORT OF CALL</div><div class="end-title">항해 종료</div><div class="end-subtitle">{subtitle}</div><div class="end-rule"></div></div><div class="end-hero-image"></div></div>
  <section class="end-section"><div class="end-section-head"><div class="end-icon">♧</div><div><div class="end-kicker">ENVIRONMENTAL IMPACT</div><div class="end-heading">탄소 감축 성과</div></div></div>
  <div class="end-carbon-grid"><div><div class="end-metric-label">항해 시작</div><div class="end-start">{START_EMISSION}</div><div class="end-unit">탄소 배출량</div></div><div class="end-carbon-progress"><div class="end-progress-title">CARBON REDUCTION JOURNEY</div><div class="end-track"><div class="end-fill"></div></div><div class="end-progress-note">-{reduction_rate}% 감축</div></div><div style="border-left:1px solid #dce5e9;padding-left:28px"><div class="end-metric-label">최종 탄소 배출량</div><div class="end-final">{emission}</div><div class="end-unit">{'NET ZERO' if emission == 0 else 'FINAL EMISSION'}</div></div></div>
@@ -1390,6 +1406,7 @@ def advance_turn():
                 "phase": "sailing" if previous_status == "outbound" else "returning",
                 "returning_income": int(vessel.get("returning_income", vessel.get("voyage_income", 0)) or 0),
                 "voyage_income": int(vessel.get("voyage_income", 0) or 0),
+                "weather": vessel.get("weather"),
             })
 
     for ship in list(st.session_state.fleet):
@@ -1491,25 +1508,26 @@ with st.expander("🏢 회사 및 선단 관리", expanded=True):
     else:
         st.info("보유 선박이 없습니다. 아래 선박 구매 메뉴에서 새 선박을 구매하세요.")
 
-if st.session_state.msg:
-    st.success(st.session_state.msg)
+# 운항·이벤트 관련 완료 메시지는 한곳에 모아 중복 출력을 줄인다.
+_success_messages = []
+if st.session_state.get("msg"):
+    _success_messages.append(str(st.session_state.msg))
     st.session_state.msg = ""
-
-
-
-# 이벤트 선택창은 반드시 지도 바로 위에 표시한다.
-if st.session_state.event_pending and st.session_state.phase != "ended":
-    event = st.session_state.event_pending
+if st.session_state.get("return_feedback"):
+    _success_messages.extend(
+        part.strip() for part in str(st.session_state.return_feedback).split("  ") if part.strip()
+    )
+    st.session_state.return_feedback = ""
+if _success_messages:
     with st.container(border=True):
-        st.subheader(f"⚠️ 긴급 상황: {event['title']}")
-        st.markdown(f"**발생 선박:** {event.get('ship_name', '선박')} · {event.get('ship_type', '선종 미상')}")
-        st.write(event["description"])
-        event_cols = st.columns(len(event["choices"]))
-        for i, choice in enumerate(event["choices"]):
-            event_cols[i].button(
-                choice["label"], key=f"event_choice_{event['title']}_{i}",
-                use_container_width=True, on_click=resolve_event, args=(i,)
-            )
+        st.markdown("**운항 처리 결과**")
+        st.success("\n\n".join(dict.fromkeys(_success_messages)))
+
+
+
+# 미해결 이벤트는 지도 위 인라인이 아닌 모달 팝업으로 표시한다.
+if st.session_state.event_pending and st.session_state.phase != "ended":
+    show_event_dialog()
 
 st.subheader("선박 상태 현황")
 status_rows = []
@@ -1689,8 +1707,6 @@ with map_col:
         st.button("다음 해로 ▶", key="advance_turn_button", type="primary",
                    disabled=(st.session_state.phase == "ended" or st.session_state.event_pending is not None),
                    use_container_width=True, on_click=advance_turn)
-    if st.session_state.get("return_feedback"):
-        st.success(st.session_state.return_feedback)
     if st.session_state.get("quest_accept_feedback"):
         st.success(st.session_state.quest_accept_feedback)
         st.session_state.quest_accept_feedback = ""
@@ -1704,7 +1720,15 @@ with map_col:
 with info_col:
     current_ship = selected_ship()
     if current_ship and current_ship.get("status", current_ship.get("phase")) in ("outbound", "returning") and current_ship.get("weather_note"):
-        st.info(f"🌦️ {current_ship['name']} 기상: {current_ship['weather']} — {current_ship['weather_note']}")
+        with st.container(border=True):
+            st.markdown("**🌦️ 현재 기상 현황**")
+            weather_icon = "⛈️" if current_ship.get("weather") == "폭풍" else "🌫️" if current_ship.get("weather") == "짙은 안개" else "🌬️" if current_ship.get("weather") == "순풍" else "🌊"
+            st.markdown(f"### {weather_icon} {current_ship.get('weather')}")
+            st.caption(current_ship.get("weather_note"))
+            if current_ship.get("weather") in ("짙은 안개", "폭풍"):
+                st.caption("악천후로 부정적인 해상 사건의 발생 가능성이 높아집니다.")
+            else:
+                st.caption("현재 기상은 운임에 영향을 주지 않습니다.")
     if current_ship and current_ship.get("status", current_ship.get("phase")) == "outbound":
         st.write(f"🚢 {current_ship['name']} 항해 중 · {current_ship.get('dest')} 방향 · 남은 {current_ship.get('years_left', 0)}년 / 총 {current_ship.get('leg_years', 0)}년")
     elif current_ship and current_ship.get("status", current_ship.get("phase")) == "returning":
@@ -1801,12 +1825,14 @@ with info_col:
             estimate_cols[1].caption("₩  예상 수익")
             estimate_cols[1].markdown(f"**{money_label(income)}**")
             st.markdown("<div style='height:1px;background:#e5e7eb;margin:12px 0'></div>", unsafe_allow_html=True)
-            st.markdown(
-                f"⚓ 원래 정박비 <del>{money_label(destination.get('fee', 0))}</del> → "
-                f"**{money_label(current_fee)}**"
-                + (f" · 단골 할인 {current_tier['discount']}%" if current_tier["discount"] else ""),
-                unsafe_allow_html=True,
-            )
+            if loyalty_discount_amount > 0:
+                st.markdown(
+                    f"⚓ 원래 정박비 <del>{money_label(fee_before_loyalty)}</del> → **{money_label(current_fee)}**"
+                    f" · 단골 할인 {current_tier['discount']}%",
+                    unsafe_allow_html=True,
+                )
+            else:
+                st.markdown(f"⚓ 정박비 **{money_label(current_fee)}**")
             st.write(features.get(selected_port, destination.get("description", "게임용 목적지입니다.")))
             st.info(f"**게임 내 혜택:** {current_benefit['note'] or '현재 적용 가능한 별도 혜택 없음'}")
             official_sources = {
