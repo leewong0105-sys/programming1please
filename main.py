@@ -31,7 +31,6 @@ TRANSPORT = [
     {"id": 1, "name": "화물 적재함 확장", "price": 25 * MONEY_SCALE, "effect": "모든 항해 수익 +10%"},
     {"id": 2, "name": "대형 선체로 교체", "price": 80 * MONEY_SCALE, "effect": "모든 항해 수익 +25%"},
     {"id": 3, "name": "자동화 하역 시스템", "price": 15 * MONEY_SCALE, "effect": "부산항을 포함한 정박비 1단계당 25% 할인 (최대 75%)"},
-    {"id": 4, "name": "자율운항선박", "price": 30 * MONEY_SCALE, "effect": "정박 중인 모든 선박이 이전 자동 항로로 재출항"},
 ]
 
 
@@ -90,7 +89,6 @@ FISHING_GROUNDS = {
 }
 
 CHECKPOINTS = {2030: 80, 2040: 30, 2050: 0}
-AUTO_ROUTE = ["로테르담", "싱가포르", "상하이", "도쿄"]
 
 # 실제 지리 좌표: 위도, 경도
 PORT_COORDS = {
@@ -224,8 +222,6 @@ def init():
         "dest": None,
         "pos": 0,
         "total": 0,
-        "auto_on": False,
-        "auto_idx": 0,
         "checked": [],
         "history": [{"year": START_YEAR, "money": START_MONEY, "emission": START_EMISSION}],
         "voyage_count": 0,
@@ -280,8 +276,6 @@ def reset_game():
         "dest": None,
         "pos": 0,
         "total": 0,
-        "auto_on": False,
-        "auto_idx": 0,
         "checked": [],
         "history": [{"year": START_YEAR, "money": START_MONEY, "emission": START_EMISSION}],
         "voyage_count": 0,
@@ -730,30 +724,6 @@ def cancel_departure(ship=None):
         sync_ship_map_progress(ship)
         st.session_state.selected_port = None
         st.session_state.msg = "출항을 취소했습니다. 목적지를 다시 선택할 수 있습니다."
-
-
-def start_auto_voyage(ship=None):
-    """자율운항 구매 후 정박 중인 일반 선박을 차례로 자동 출항시킨다."""
-    if not st.session_state.auto_on or 4 not in st.session_state.bought_tr:
-        return
-    candidates = [ship] if ship else list(st.session_state.fleet)
-    launched = []
-    for vessel in candidates:
-        if not vessel or vessel.get("status", "docked") != "docked" or vessel.get("type") == "어선":
-            continue
-        destination_name = vessel.get("last_auto_destination")
-        if destination_name not in [item["name"] for item in DESTINATIONS]:
-            destination_name = AUTO_ROUTE[st.session_state.auto_idx % len(AUTO_ROUTE)]
-        if destination_name not in [item["name"] for item in DESTINATIONS]:
-            continue
-        start_voyage(destination_name, vessel)
-        if vessel.get("status") == "outbound":
-            vessel["auto_route_enabled"] = True
-            vessel["last_auto_destination"] = destination_name
-            launched.append(vessel["name"])
-            st.session_state.auto_idx = (st.session_state.auto_idx + 1) % len(AUTO_ROUTE)
-    if launched:
-        st.session_state.msg = "자율운항 출항: " + ", ".join(launched)
 
 
 def pause_voyage(ship=None):
@@ -1404,10 +1374,6 @@ def advance_turn():
             and random.random() < 1.00):  # 테스트용: 이벤트 발생 확률 100%
         trigger_random_event(random.choice(event_ship_snapshots))
 
-    # 자율운항을 켠 선박은 부산 귀항 후 다음 턴 진행 시 자동 재출항한다.
-    if st.session_state.auto_on and 4 in st.session_state.bought_tr:
-        start_auto_voyage()
-
     st.session_state.turn_animation_ships = animation_ships
     check_year_checkpoint()
 
@@ -1804,16 +1770,6 @@ with info_col:
                     st.rerun()
             else:
                 st.warning("이 선박이 이용할 수 있는 특수 목적지가 없습니다.")
-
-    if 4 in st.session_state.bought_tr:
-        st.toggle("자동 운항", key="auto_on", disabled=(not current_ship or current_ship.get("status", ship.get("phase", "docked")) != "docked" or st.session_state.phase == "ended"),
-                  help="정박 중인 일반 선박을 자동 항로로 출발시키고, 귀항 후 자동으로 다음 항로에 재출항합니다.")
-        if st.session_state.auto_on:
-            next_auto_dest = AUTO_ROUTE[st.session_state.auto_idx % len(AUTO_ROUTE)]
-            st.caption(f"다음 자동 항로: {next_auto_dest}")
-            st.button("▶ 정박 선박 자동 출항", key="start_auto_voyage",
-                      disabled=(not current_ship or current_ship.get("status", ship.get("phase", "docked")) != "docked" or st.session_state.phase == "ended"), use_container_width=True,
-                      on_click=start_auto_voyage)
 
 if st.session_state.event_log:
     with st.expander("📜 최근 해상 사건 기록"):
