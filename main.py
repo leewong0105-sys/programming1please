@@ -11,7 +11,7 @@ import plotly.graph_objects as go
 START_YEAR = 2026
 END_YEAR = 2050
 MONEY_SCALE = 1_000_000  # 게임 금액 1단위 = 100만 원
-START_MONEY = 80 * MONEY_SCALE  # 시작 자금 8,000만원
+START_MONEY = 10000 * MONEY_SCALE  # 시작 자금 100억원
 START_EMISSION = 100
 TURN_YEARS = 1  # 다음 해로 버튼 한 번에 진행할 게임 연수
 MAX_FLEET_SIZE = 5  # 회사가 보유할 수 있는 최대 선박 수
