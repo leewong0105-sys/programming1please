@@ -39,7 +39,7 @@ TRANSPORT = [
 # 선종마다 첫 구매 가격을 다르게 설정했다. (게임 밸런스용 금액이며 실제 선박 시세는 아님)
 SHIP_TYPES = {
     "기본 화물선": {"base_price": 60 * MONEY_SCALE, "kind": "일반", "description": "일반 항구 간 기본 화물 운송"},
-    "컨테이너선": {"base_price": 90 * MONEY_SCALE, "kind": "일반", "description": "컨테이너 화물 운송"},
+    "컨테이너선": {"base_price": 80 * MONEY_SCALE, "kind": "일반", "description": "컨테이너 화물 운송"},
     "어선": {"base_price": 35 * MONEY_SCALE, "kind": "어선", "description": "어장으로 이동해 조업 후 어획물 판매"},
     "탱크선": {"base_price": 100 * MONEY_SCALE, "kind": "특수", "description": "액체 화물 운송"},
     "케미컬 탱커": {"base_price": 110 * MONEY_SCALE, "kind": "특수", "description": "화학제품 전문 운송"},
@@ -75,11 +75,11 @@ RESEARCH_TECHS = [
 ]
 
 SPECIAL_PORTS = {
-    "LNG 터미널": {"ship_types": ["LNG선"], "years": 2, "income": 65 * MONEY_SCALE, "fee": 5 * MONEY_SCALE,
+    "LNG 터미널": {"ship_types": ["LNG선"], "years": 2, "income": 55 * MONEY_SCALE, "fee": 5 * MONEY_SCALE,
                     "coords": (1.3, 104.0), "description": "LNG선 전용 터미널(게임용 목적지)"},
-    "화학제품 터미널": {"ship_types": ["케미컬 탱커"], "years": 2, "income": 55 * MONEY_SCALE, "fee": 4 * MONEY_SCALE,
+    "화학제품 터미널": {"ship_types": ["케미컬 탱커"], "years": 2, "income": 50 * MONEY_SCALE, "fee": 4 * MONEY_SCALE,
                          "coords": (22.3, 114.2), "description": "케미컬 탱커 전용 터미널(게임용 목적지)"},
-    "원유 터미널": {"ship_types": ["탱크선"], "years": 2, "income": 60 * MONEY_SCALE, "fee": 4 * MONEY_SCALE,
+    "원유 터미널": {"ship_types": ["탱크선"], "years": 2, "income": 52 * MONEY_SCALE, "fee": 4 * MONEY_SCALE,
                     "coords": (25.0, 55.0), "description": "탱크선 전용 터미널(게임용 목적지)"},
 }
 FISHING_GROUNDS = {
@@ -128,7 +128,7 @@ def new_ship_state(ship_id, name, ship_type, price):
         "status": "docked", "phase": "docked", "dest": None,
         "years_left": 0, "leg_years": 0, "trip_elapsed": 0, "waiting_for_turn": False, "pos": 0, "total": 0,
         "weather": None, "weather_note": "", "voyage_income": 0,
-        "returning_income": 0, "port_fee_paid": 0, "event_cooldown": 0,
+        "returning_income": 0, "port_fee_paid": 0,
         "last_event_title": None,
         "voyage_event_count": 0, "event_log": [], "emergency_quest_bonus": 0, "emergency_quest_year": None,
     }
@@ -176,7 +176,6 @@ def ensure_fleet_fields():
         "voyage_income": st.session_state.get("voyage_income", 0),
         "returning_income": st.session_state.get("returning_income", 0),
         "port_fee_paid": st.session_state.get("port_fee_paid", 0),
-        "event_cooldown": st.session_state.get("event_cooldown", 0),
         "voyage_event_count": st.session_state.get("voyage_event_count", 0),
         "event_log": st.session_state.get("event_log", []).copy(),
     }
@@ -241,7 +240,6 @@ def init():
         "weather_note": "",
         "selected_port": None,
         "event_pending": None,
-        "event_cooldown": 0,
         "last_event_title": None,
         "voyage_event_count": 0,
         "port_fee_paid": 0,
@@ -298,7 +296,6 @@ def reset_game():
         "weather_note": "",
         "selected_port": None,
         "event_pending": None,
-        "event_cooldown": 0,
         "last_event_title": None,
         "voyage_event_count": 0,
         "port_fee_paid": 0,
@@ -707,7 +704,7 @@ def start_voyage(destination_name, ship=None):
         "voyage_income": round(actual_income(destination_name, ship) * weather["income_rate"]),
         "income_weather_rate": weather["income_rate"],
         "port_fee_paid": 0, "returning_income": round(actual_income(destination_name, ship) * weather["income_rate"]),
-        "event_cooldown": 3, "voyage_event_count": 0,
+        "voyage_event_count": 0,
     })
     set_ship_status(ship, "outbound")
     sync_ship_map_progress(ship)
@@ -727,7 +724,7 @@ def cancel_departure(ship=None):
             "trip_elapsed": 0, "waiting_for_turn": False,
             "weather": None, "weather_note": "", "voyage_income": 0,
             "returning_income": 0, "port_fee_paid": 0,
-            "event_cooldown": 0, "voyage_event_count": 0, "emergency_quest_bonus": 0, "emergency_quest_year": None,
+            "voyage_event_count": 0, "emergency_quest_bonus": 0, "emergency_quest_year": None,
         })
         set_ship_status(ship, "docked")
         sync_ship_map_progress(ship)
@@ -834,7 +831,7 @@ def arrive(ship):
     return_weather = random.choices(return_weather_options, weights=[2, 3, 3, 3], k=1)[0]
     ship["weather"] = return_weather["name"]
     ship["weather_note"] = return_weather["description"]
-    if return_weather["income_rate"] < 1:
+    if return_weather["income_rate"] != 1:
         ship["returning_income"] = round(ship.get("returning_income", 0) * return_weather["income_rate"])
         ship["income_weather_rate"] = float(ship.get("income_weather_rate", 1.0)) * return_weather["income_rate"]
     return_duration = max(1, actual_years(destination_name))
@@ -843,7 +840,6 @@ def arrive(ship):
     ship["leg_years"] = max(1, int(ship.get("leg_years", return_duration)))
     set_ship_status(ship, "returning")
     sync_ship_map_progress(ship)
-    ship["event_cooldown"] = 2
     ship["voyage_event_count"] = 0
     arrival_message = f"{ship['name']} 목적지 도착! 정박비 {money_label(port_fee)} 지출 · 귀항 날씨: {return_weather['name']} · {fee_note} 운임은 부산 도착 후 정산됩니다."
     previous_feedback = st.session_state.get("return_feedback", "")
@@ -869,7 +865,7 @@ def settle_return(ship):
     ship.update({"dest": None, "years_left": 0, "leg_years": 0,
                  "trip_elapsed": 0, "waiting_for_turn": False,
                  "weather": None, "weather_note": "", "voyage_income": 0,
-                 "returning_income": 0, "port_fee_paid": 0, "event_cooldown": 0,
+                 "returning_income": 0, "port_fee_paid": 0,
                  "emergency_quest_bonus": 0, "emergency_quest_year": None})
     set_ship_status(ship, "docked")
     sync_ship_map_progress(ship)
@@ -919,45 +915,45 @@ def event_condition_big_client(ship):
 
 def event_condition_research_lab(ship):
     levels = st.session_state.get("research_levels", {})
-    return any(int(levels.get(tech["id"], 0)) < len(tech["stages"]) for tech in RESEARCH_TECHS)
+    return any(int(levels.get(tech["id"], 0)) < min(2, len(tech["stages"])) for tech in RESEARCH_TECHS)
 
 
 def event_condition_strike(ship):
-    return bool(ship and ship.get("phase") == "sailing")
+    return bool(ship and ship.get("event_phase", ship.get("phase")) == "sailing")
 
 
 def event_condition_dolphins(ship):
-    return bool(ship and ship.get("phase") in ("sailing", "returning"))
+    return bool(ship and ship.get("event_phase", ship.get("phase")) in ("sailing", "returning"))
 
 
 def event_condition_always(ship):
-    return bool(ship and ship.get("phase") in ("sailing", "returning"))
+    return bool(ship and ship.get("event_phase", ship.get("phase")) in ("sailing", "returning"))
 
 
 def trigger_random_event(ship=None):
-    """조건을 만족하는 이벤트 중 하나를 선택한다. 직전 이벤트는 연속 발생하지 않는다."""
-    travelling = active_ships()
+    """이번 턴 항해 선박의 정산 전 스냅샷을 대상으로 이벤트를 선택한다."""
     if ship is None:
-        eligible_ships = [s for s in travelling if int(s.get("event_cooldown", 0)) <= 0]
-        if not eligible_ships:
-            return
-        ship = random.choice(eligible_ships)
-    if not ship or ship.get("phase") not in ("sailing", "returning"):
+        return
+    if ship.get("event_phase") not in ("sailing", "returning"):
         return
 
     events = [
         {"title": "엔진 이상 경고", "condition": event_condition_always,
-         "description": "지금 점검하면 비용이 들지만, 방치하면 더 큰 손실이 날 수 있습니다.",
+         "description": "엔진에 이상 징후가 감지됐습니다. 점검할지, 운항을 강행할지 선택하세요.",
          "choices": [
-             {"label": "긴급 점검 (-300만원)", "delta": -3 * MONEY_SCALE, "result": "엔진을 점검했습니다. 큰 고장을 예방했습니다."},
-             {"label": "운항 강행", "success_chance": 0.45, "success_delta": 0, "fail_delta": -8 * MONEY_SCALE,
-              "success": "다행히 엔진이 버텼습니다. 추가 비용 없이 항해합니다.", "failure": "엔진 고장! 수리비 800만원을 부담했습니다."}]},
+             {"label": "긴급 점검 (운임 -5%)", "effect": "income_percent", "percent": -5,
+              "result": "엔진을 점검했습니다. 운임의 5%를 점검 비용으로 지출했습니다."},
+             {"label": "운항 강행", "success_chance": 0.65, "success_delta": 0, "fail_percent": -12,
+              "success": "엔진이 정상적으로 작동했습니다. 추가 손실 없이 항해합니다.",
+              "failure": "엔진 이상으로 운임의 12%에 해당하는 수리 비용이 발생했습니다."}]},
         {"title": "해적 위험 경보", "condition": event_condition_always,
-         "description": "의심 선박이 감지됐습니다. 안전을 확보할지, 위험을 감수할지 선택하세요.",
+         "description": "의심 선박이 감지됐습니다. 호위를 요청할지, 위험을 감수하고 항로를 유지할지 선택하세요.",
          "choices": [
-             {"label": "보안 호위 요청 (-200만원)", "delta": -2 * MONEY_SCALE, "result": "호위 서비스를 이용해 안전하게 통과했습니다."},
-             {"label": "항로 유지", "success_chance": 0.50, "success_delta": 4 * MONEY_SCALE, "fail_delta": -10 * MONEY_SCALE,
-              "success": "위험을 무사히 통과했습니다. 일정 보너스 400만원을 얻었습니다.", "failure": "해적 피해로 화물과 장비 일부가 손상됐습니다. 손실 1,000만원이 발생했습니다."}]},
+             {"label": "보안 호위 요청 (운임 -5%)", "effect": "income_percent", "percent": -5,
+              "result": "보안 호위를 요청했습니다. 운임의 5%를 호위 비용으로 지출했습니다."},
+             {"label": "항로 유지", "success_chance": 0.70, "success_percent": 5, "fail_percent": -20,
+              "success": "위험을 무사히 통과했습니다. 운임의 5%에 해당하는 추가 수익을 얻었습니다.",
+              "failure": "해적 피해가 발생했습니다. 운임의 20%에 해당하는 손실을 입었습니다."}]},
         {"title": "정부 친환경 보조금 심사", "condition": event_condition_government,
          "description": "회사의 친환경 전환 성과를 인정받아 정부 보조금 심사 결과가 나왔습니다.",
          "choices": [{"label": "확인", "effect": "government_grant"}]},
@@ -972,9 +968,9 @@ def trigger_random_event(ship=None):
              {"label": "시범 연구 수락", "effect": "free_research_chance", "success_chance": 0.5},
              {"label": "거절", "delta": 0, "result": "시범 연구 제안을 거절했습니다. 변화는 없습니다."}]},
         {"title": "항만 파업", "condition": event_condition_strike,
-         "description": "목적지 항만에서 파업이 발생했습니다. 기다리거나 우회 하역을 선택할 수 있습니다.",
+         "description": "목적지 항만에서 파업이 발생했습니다. 대기하거나 우회 하역을 선택할 수 있습니다.",
          "choices": [
-             {"label": "파업이 끝날 때까지 대기 (운임 -10%)", "effect": "income_percent", "percent": -10},
+             {"label": "파업 종료 대기 (운임 -10%)", "effect": "income_percent", "percent": -10},
              {"label": "다른 항구로 우회·하역 (-400만원)", "delta": -4 * MONEY_SCALE, "result": "우회 하역을 선택했습니다. 비용 400만원이 발생했지만 추가 지연은 없습니다."}]},
         {"title": "돌고래 떼", "condition": event_condition_dolphins,
          "description": "돌고래 떼가 배를 따라옵니다. 보고 지나가면 운이 좋아질지도 모릅니다.",
@@ -988,6 +984,8 @@ def trigger_random_event(ship=None):
     event["ship_id"] = ship["id"]
     event["ship_name"] = ship["name"]
     event["ship_type"] = ship["type"]
+    event["income_base"] = max(0, int(ship.get("returning_income", ship.get("voyage_income", 0)) or 0))
+    event["event_phase"] = ship["event_phase"]
     st.session_state.event_pending = event
 
 
@@ -1004,11 +1002,15 @@ def resolve_event(choice_index):
     delta = int(choice.get("delta", 0))
 
     # 기존 delta / success_chance 이벤트 호환
+    percent_adjustment = 0.0
     if "success_chance" in choice and effect not in ("free_research_chance",):
         if random.random() < choice["success_chance"]:
-            delta, result = int(choice.get("success_delta", delta)), choice.get("success", result)
+            delta = int(choice.get("success_delta", delta))
+            percent_adjustment = float(choice.get("success_percent", 0))
+            result = choice.get("success", result)
         else:
-            delta, result = int(choice.get("fail_delta", 0)), choice.get("failure", result)
+            percent_adjustment = float(choice.get("fail_percent", 0))
+            result = choice.get("failure", result)
 
     if effect == "government_grant":
         emission = current_emission()
@@ -1019,16 +1021,12 @@ def resolve_event(choice_index):
         else:
             delta, result = 2 * MONEY_SCALE, "정부 보조금 200만원을 받았습니다."
     elif effect == "income_percent":
-        if ship:
-            old_income = int(ship.get("returning_income", 0))
-            percent = float(choice.get("percent", 0))
-            ship["returning_income"] = max(0, round(old_income * (1 + percent / 100)))
-            ship["voyage_income"] = ship["returning_income"]
-            result = f"이번 항해 예상 운임이 {percent:+g}% 조정되었습니다. ({money_label(old_income)} → {money_label(ship['returning_income'])})"
-    elif effect == "free_research_chance":
+        percent_adjustment = float(choice.get("percent", 0))
+
+    if effect == "free_research_chance":
         if random.random() < float(choice.get("success_chance", 0.5)):
             levels = st.session_state.get("research_levels", {})
-            available = [t for t in RESEARCH_TECHS if int(levels.get(t["id"], 0)) < len(t["stages"])]
+            available = [t for t in RESEARCH_TECHS if int(levels.get(t["id"], 0)) < min(2, len(t["stages"]))]
             if available:
                 tech = random.choice(available)
                 level = int(levels.get(tech["id"], 0))
@@ -1048,10 +1046,18 @@ def resolve_event(choice_index):
             delta = 1 * MONEY_SCALE
             result = "돌고래 떼를 발견했습니다. 기분 좋은 조업 보너스 100만원을 받았습니다."
 
+    if percent_adjustment:
+        income_base = max(0, int(event.get("income_base", 0)))
+        adjustment_amount = round(income_base * percent_adjustment / 100)
+        delta += adjustment_amount
+        if effect == "income_percent" and "success_chance" not in choice:
+            result = f"이번 항해 운임의 {percent_adjustment:+g}%를 반영했습니다. ({money_label(adjustment_amount)})"
+        else:
+            result += f" (기준 운임의 {percent_adjustment:+g}%, {money_label(adjustment_amount)})"
+
     st.session_state.money += delta
     if ship:
         ship.setdefault("event_log", []).append(f"{event['title']}: {result}")
-        ship["event_cooldown"] = 8
         ship["voyage_event_count"] = ship.get("voyage_event_count", 0) + 1
     st.session_state.event_log.append(f"{event.get('ship_name', '선박')} ({event.get('ship_type', '')}) · {event['title']}: {result}")
     st.session_state.last_event_title = event["title"]
@@ -1319,7 +1325,7 @@ st.caption("선단 운영 현황을 확인하고, 수익과 탄소 감축 기술
 def advance_turn():
     """목적지 미배정 경고를 거친 뒤 실제로 1년 진행한다."""
     st.session_state.return_feedback = ""
-    if st.session_state.phase == "ended":
+    if st.session_state.phase == "ended" or st.session_state.get("event_pending") is not None:
         return
     if not st.session_state.get("show_empty_destination_warning", False):
         if not any(ship.get("dest") for ship in st.session_state.get("fleet", [])):
@@ -1340,6 +1346,19 @@ def advance_turn():
     if new_year in QUEST_YEARS and st.session_state.get("annual_quest_year") != new_year:
         generate_annual_quest(new_year)
     animation_ships = []
+    # 이번 턴에 항해한 선박의 상태와 운임을 정산 전에 보관한다.
+    event_ship_snapshots = []
+    for vessel in list(st.session_state.fleet):
+        previous_status = vessel.get("status", vessel.get("phase", "docked"))
+        if previous_status in ("outbound", "returning"):
+            event_ship_snapshots.append({
+                "id": vessel["id"], "name": vessel.get("name", "선박"),
+                "type": vessel.get("type", "선종 미상"),
+                "event_phase": "sailing" if previous_status == "outbound" else "returning",
+                "phase": "sailing" if previous_status == "outbound" else "returning",
+                "returning_income": int(vessel.get("returning_income", vessel.get("voyage_income", 0)) or 0),
+                "voyage_income": int(vessel.get("voyage_income", 0) or 0),
+            })
 
     for ship in list(st.session_state.fleet):
         status = ship.get("status", ship.get("phase", "docked"))
@@ -1380,11 +1399,10 @@ def advance_turn():
         else:
             sync_ship_map_progress(ship)
 
-    # 선박별 이벤트 대기 턴을 줄이고, 항해 중일 때 턴당 최대 1건(30%) 발생시킨다.
-    for vessel in active_ships():
-        vessel["event_cooldown"] = max(0, int(vessel.get("event_cooldown", 0)) - 1)
-    if st.session_state.get("event_pending") is None and active_ships() and random.random() < 0.30:
-        trigger_random_event()
+    # 이번 턴에 항해한 선박을 기준으로, 정산 여부와 관계없이 최대 1건 발생시킨다.
+    if (st.session_state.get("event_pending") is None and event_ship_snapshots
+            and random.random() < 0.30):
+        trigger_random_event(random.choice(event_ship_snapshots))
 
     # 자율운항을 켠 선박은 부산 귀항 후 다음 턴 진행 시 자동 재출항한다.
     if st.session_state.auto_on and 4 in st.session_state.bought_tr:
@@ -1511,10 +1529,10 @@ with map_col:
                   "destination": ship.get("dest"), "phase": ship.get("status", "docked"),
                   "pos": round((max(1, int(ship.get("leg_years", 1))) - max(0, min(max(1, int(ship.get("leg_years", 1))), int(ship.get("years_left", 0))))) * 5),
                   "total": max(1, int(ship.get("leg_years", 1))) * 5,
-                  "paused": bool(st.session_state.event_pending or ship.get("waiting_for_turn", False))}
+                  "paused": bool(ship.get("waiting_for_turn", False))}
                  for ship in active_ships()]
             ),
-            "paused": bool(st.session_state.event_pending),
+            "paused": False,
         }
         config_json = json.dumps(map_config, ensure_ascii=False).replace("</", "<\\/")
         map_html = r'''<!doctype html>
@@ -1633,7 +1651,7 @@ with map_col:
     if st.session_state.get("show_empty_destination_warning", False):
         st.markdown("<div style='background:#fff1f2;border:1px solid #ef4444;color:#b91c1c;padding:12px 14px;border-radius:10px;font-weight:700;margin:8px 0'>⚠️ 아직 목적지를 선택하지 않았습니다. 정말 진행하시겠습니까?</div>", unsafe_allow_html=True)
         # 목적지를 선택하면 assign_destination()에서 이 경고가 즉시 해제된다.
-        if st.button("그래도 다음 해로 진행", key="confirm_empty_destination_turn_button", type="primary", use_container_width=True, disabled=(st.session_state.phase == "ended")):
+        if st.button("그래도 다음 해로 진행", key="confirm_empty_destination_turn_button", type="primary", use_container_width=True, disabled=(st.session_state.phase == "ended" or st.session_state.event_pending is not None)):
             st.session_state.confirm_empty_destination_turn = True
             advance_turn()
             st.rerun()
@@ -1641,7 +1659,7 @@ with map_col:
     # 진행이 완료되어 경고 상태가 해제되면 일반적인 다음 해로 버튼이 다시 나타난다.
     if not st.session_state.get("show_empty_destination_warning", False):
         st.button("다음 해로 ▶", key="advance_turn_button", type="primary",
-                   disabled=(st.session_state.phase == "ended"),
+                   disabled=(st.session_state.phase == "ended" or st.session_state.event_pending is not None),
                    use_container_width=True, on_click=advance_turn)
     if st.session_state.get("return_feedback"):
         st.success(st.session_state.return_feedback)
