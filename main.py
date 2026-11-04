@@ -1401,7 +1401,7 @@ def advance_turn():
 
     # 이번 턴에 항해한 선박을 기준으로, 정산 여부와 관계없이 최대 1건 발생시킨다.
     if (st.session_state.get("event_pending") is None and event_ship_snapshots
-            and random.random() < 0.30):
+            and random.random() < 1.00):  # 테스트용: 이벤트 발생 확률 100%
         trigger_random_event(random.choice(event_ship_snapshots))
 
     # 자율운항을 켠 선박은 부산 귀항 후 다음 턴 진행 시 자동 재출항한다.
