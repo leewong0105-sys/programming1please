@@ -18,9 +18,7 @@ TRANSPORT = [
     (1, "화물 적재함 확장", "모든 항해 수익 +10%"),
     (2, "대형 선체로 교체", "모든 항해 수익 +25%"),
     (3, "자동화 하역 시스템", "정박비 할인 연구"),
-    (4, "자율운항선박", "자동 운항 기능 해금"),
 ]
-
 def num(v, default=0):
     try: return int(v or 0)
     except (TypeError, ValueError): return default
