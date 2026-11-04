@@ -98,6 +98,15 @@ PORT_TIER_RULES = [
     {"name": "파트너", "min_visits": 12, "discount": 30},
 ]
 
+# 항만 혼잡도: 지수 0~9, 출항 시 고정한 운임 보정률을 해당 항해에 적용한다.
+CONGESTION_TIER_RULES = [
+    {"min": 0, "max": 2, "name": "한산", "modifier": 0.02},
+    {"min": 3, "max": 5, "name": "보통", "modifier": 0.00},
+    {"min": 6, "max": 8, "name": "혼잡", "modifier": -0.03},
+    {"min": 9, "max": 9, "name": "마비", "modifier": -0.06},
+]
+
+
 
 # 실제 지리 좌표: 위도, 경도
 PORT_COORDS = {
@@ -126,6 +135,55 @@ SEA_ROUTES = {
     "동해 어장": [PORT_COORDS["부산"], (37.0, 130.0), FISHING_GROUNDS["동해 어장"]["coords"]],
     "북태평양 어장": [PORT_COORDS["부산"], (35.0, 140.0), (38.0, 150.0), FISHING_GROUNDS["북태평양 어장"]["coords"]],
 }
+
+
+def all_congestion_ports():
+    """혼잡도 관리 대상 목적항 전체를 반환한다. 부산은 출발·귀항항이므로 제외한다."""
+    return ([item["name"] for item in DESTINATIONS]
+            + list(SPECIAL_PORTS.keys()) + list(FISHING_GROUNDS.keys()))
+
+
+def get_congestion_tier(index):
+    index = max(0, min(9, int(index)))
+    return next(rule for rule in CONGESTION_TIER_RULES
+                if rule["min"] <= index <= rule["max"])
+
+
+def get_congestion_modifier(index, is_urgent=False):
+    rule = get_congestion_tier(index)
+    modifier = float(rule["modifier"])
+    if is_urgent and modifier < 0:
+        return 0.0
+    return modifier
+
+
+def ensure_port_congestion():
+    """신규·기존 세션 모두 혼잡도 사전을 안전하게 준비한다."""
+    congestion = st.session_state.setdefault("port_congestion", {})
+    for port_name in all_congestion_ports():
+        congestion.setdefault(port_name, 4)
+        congestion[port_name] = max(0, min(9, int(congestion[port_name])))
+
+
+def advance_port_congestion(settled_destination):
+    """항해 정산 시 목적항 +2, 전체 항구 기본 -1 및 개별 변동을 적용한다."""
+    ensure_port_congestion()
+    congestion = st.session_state.port_congestion
+    for port_name in all_congestion_ports():
+        value = int(congestion.get(port_name, 4)) - 1 + random.choice([-1, 0, 1])
+        if port_name == settled_destination:
+            value += 2
+        congestion[port_name] = max(0, min(9, value))
+
+
+def congestion_label(port_name):
+    ensure_port_congestion()
+    index = st.session_state.port_congestion.get(port_name, 4)
+    rule = get_congestion_tier(index)
+    modifier = rule["modifier"]
+    sign = "+" if modifier > 0 else ""
+    percent = f"{sign}{modifier * 100:.0f}%"
+    return index, rule, percent
 
 
 def new_ship_state(ship_id, name, ship_type, price):
@@ -264,6 +322,7 @@ def init():
         "registered_captain_name": "",
         "unlocked_special_ports": [],
         "port_visits": port_visit_defaults(),
+        "port_congestion": {name: 4 for name in all_congestion_ports()},
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -279,6 +338,7 @@ def init():
     else:
         for port_name in port_visit_defaults():
             st.session_state.port_visits.setdefault(port_name, 0)
+    ensure_port_congestion()
     ensure_fleet_fields()
 
 
@@ -332,6 +392,7 @@ def reset_game():
         "registered_captain_name": "",
         "unlocked_special_ports": [],
         "port_visits": port_visit_defaults(),
+        "port_congestion": {name: 4 for name in all_congestion_ports()},
     }
     for key, value in defaults.items():
         st.session_state[key] = value.copy() if isinstance(value, (list, dict)) else value
@@ -339,6 +400,7 @@ def reset_game():
     st.session_state.captain_name = saved_captain_name
     st.session_state.registered_company_name = saved_company_name
     st.session_state.registered_captain_name = saved_captain_name
+    ensure_port_congestion()
     ensure_fleet_fields()
 
 
@@ -558,11 +620,23 @@ def generate_annual_quest(year):
         return
     ship_type = random.choice(owned_types)
     if ship_type == "어선":
-        destination = random.choice(list(FISHING_GROUNDS))
+        ensure_port_congestion()
+        fishing_names = list(FISHING_GROUNDS)
+        fishing_weights = [
+            0.5 if get_congestion_tier(st.session_state.port_congestion[name])["name"] == "마비" else 1.0
+            for name in fishing_names
+        ]
+        destination = random.choices(fishing_names, weights=fishing_weights, k=1)[0]
         base_fare = FISHING_GROUNDS[destination]["income"]
     else:
-        destination_data = random.choice(DESTINATIONS)
-        destination = destination_data["name"]
+        ensure_port_congestion()
+        destination_names = [item["name"] for item in DESTINATIONS]
+        destination_weights = [
+            0.5 if get_congestion_tier(st.session_state.port_congestion[item["name"]])["name"] == "마비" else 1.0
+            for item in DESTINATIONS
+        ]
+        destination = random.choices(destination_names, weights=destination_weights, k=1)[0]
+        destination_data = next(item for item in DESTINATIONS if item["name"] == destination)
         base_fare = destination_data["income"]
     vessel_bonus = 1.15 if ship_type == "컨테이너선" and ship_type != "어선" else 1.0
     reward = round(base_fare * income_multiplier() * vessel_bonus * 1.25)
@@ -587,7 +661,9 @@ def accept_annual_quest(ship_id):
         return
     if not assign_destination(quest["destination"], ship):
         return
+    ship["_accepting_urgent_quest"] = True
     start_voyage(quest["destination"], ship)
+    ship.pop("_accepting_urgent_quest", None)
     if ship.get("status") == "outbound":
         base_income = int(actual_income(quest["destination"], ship))
         weather_rate = float(ship.get("income_weather_rate", 1.0))
@@ -672,6 +748,10 @@ def show_annual_quest_panel():
         st.write(f"**목적지:** {quest['destination']}항")
         st.write(f"**요구 선박:** {quest['ship_type']}")
         st.write(f"**긴급 운임:** {money_label(quest['reward'])}")
+        ensure_port_congestion()
+        quest_index = st.session_state.port_congestion.get(quest["destination"], 4)
+        if get_congestion_tier(quest_index)["name"] in ("혼잡", "마비"):
+            st.caption("🛡️ 혼잡 대기비 면제 · 긴급 운송은 혼잡·마비 운임 페널티가 면제됩니다.")
         eligible = [v for v in st.session_state.fleet
                     if v.get("type") == quest["ship_type"] and v.get("status", "docked") == "docked"]
         if eligible:
@@ -756,6 +836,12 @@ def start_voyage(destination_name, ship=None):
         "port_fee_paid": 0, "loyalty_discount_paid": 0,
         "returning_income": actual_income(destination_name, ship),
         "voyage_event_count": 0,
+        "congestion_index": int(st.session_state.get("port_congestion", {}).get(destination_name, 4)),
+        "congestion_tier": get_congestion_tier(st.session_state.get("port_congestion", {}).get(destination_name, 4))["name"],
+        "congestion_modifier": get_congestion_modifier(
+            st.session_state.get("port_congestion", {}).get(destination_name, 4),
+            is_urgent=bool(ship.get("_accepting_urgent_quest", False))),
+        "is_urgent_quest": bool(ship.get("_accepting_urgent_quest", False)),
     })
     set_ship_status(ship, "outbound")
     st.session_state.departure_required_warning = False
@@ -883,7 +969,10 @@ def settle_return(ship):
     if not ship or ship.get("status", ship.get("phase")) != "returning":
         return
     # 출항 시 적용한 선종·운송 강화와 항해 중 이벤트 운임 조정을 그대로 정산한다.
-    income = int(ship.get("returning_income", 0) or 0)
+    base_income = int(ship.get("returning_income", 0) or 0)
+    congestion_modifier = float(ship.get("congestion_modifier", 0.0) or 0.0)
+    congestion_adjustment = round(base_income * congestion_modifier)
+    income = base_income + congestion_adjustment
     busan_fee = round(1 * MONEY_SCALE * (100 - handling_discount_percent()) / 100)
     st.session_state.money -= busan_fee
     quest_bonus = int(ship.get("emergency_quest_bonus", 0) or 0)
@@ -901,6 +990,7 @@ def settle_return(ship):
         if new_tier["name"] != old_tier["name"]:
             tier_message = (f" {destination_name}항 {new_tier['name']} 등급 달성 "
                             f"(정박비 {new_tier['discount']}% 할인).")
+    advance_port_congestion(destination_name)
     add_history()
     ship_name = ship.get("name", "선박")
     quest_note = f" (긴급 의뢰 보상 포함 +{money_label(quest_bonus)})" if quest_bonus else ""
@@ -908,14 +998,18 @@ def settle_return(ship):
                  "trip_elapsed": 0, "waiting_for_turn": False,
                  "weather": None, "weather_note": "", "voyage_income": 0,
                  "returning_income": 0, "port_fee_paid": 0,
-                 "emergency_quest_bonus": 0, "emergency_quest_year": None})
+                 "emergency_quest_bonus": 0, "emergency_quest_year": None,
+                 "congestion_index": 4, "congestion_tier": "보통",
+                 "congestion_modifier": 0.0, "is_urgent_quest": False})
     set_ship_status(ship, "docked")
     sync_ship_map_progress(ship)
     loyalty_discount_paid = int(ship.get("loyalty_discount_paid", 0) or 0)
     ship["loyalty_discount_paid"] = 0
+    congestion_sign = "+" if congestion_adjustment > 0 else ""
     settlement_message = (f"{ship_name} 부산항 귀항 완료! 운임 {money_label(income)} 지급{quest_note}, "
                           f"부산항 정박비 {money_label(busan_fee)} 차감. "
-                          f"단골 할인 -{money_label(loyalty_discount_paid)}.")
+                          f"단골 할인 -{money_label(loyalty_discount_paid)}. "
+                          f"혼잡 보정 {congestion_sign}{money_label(congestion_adjustment)}.")
     settlement_message += tier_message
     previous_feedback = st.session_state.get("return_feedback", "")
     st.session_state.return_feedback = (previous_feedback + "  " + settlement_message).strip()
@@ -1851,8 +1945,15 @@ with info_col:
             current_tier = get_tier(visit_count)
             next_tier = next((rule for rule in PORT_TIER_RULES if rule["min_visits"] > visit_count), None)
             suffix = " 어장" if selected_port in FISHING_GROUNDS else " 항구"
-            st.markdown(f"### 📍 {selected_port}{suffix}  <span style='font-size:0.72em;background:#e8eefc;color:#2454a6;padding:4px 8px;border-radius:12px'>{current_tier['name']}</span>", unsafe_allow_html=True)
-            st.caption(f"누적 방문 {visit_count}회" + (f" · 다음 등급까지 {next_tier['min_visits'] - visit_count}회" if next_tier else " · 최고 등급"))
+            congestion_index, congestion_rule, congestion_percent = congestion_label(selected_port)
+            congestion_color = "#dcfce7" if congestion_rule["name"] == "한산" else ("#fee2e2" if congestion_rule["name"] in ("혼잡", "마비") else "#e5e7eb")
+            congestion_text_color = "#166534" if congestion_rule["name"] == "한산" else ("#991b1b" if congestion_rule["name"] in ("혼잡", "마비") else "#374151")
+            st.markdown(
+                f"### 📍 {selected_port}{suffix}  "
+                f"<span style='font-size:0.72em;background:#e8eefc;color:#2454a6;padding:4px 8px;border-radius:12px'>{current_tier['name']}</span> "
+                f"<span style='font-size:0.72em;background:{congestion_color};color:{congestion_text_color};padding:4px 8px;border-radius:12px'>{congestion_rule['name']} · 운임 {congestion_percent}</span>",
+                unsafe_allow_html=True)
+            st.caption(f"혼잡 지수 {congestion_index}/9 · 누적 방문 {visit_count}회" + (f" · 다음 등급까지 {next_tier['min_visits'] - visit_count}회" if next_tier else " · 최고 등급"))
             st.caption(destination.get("code", "목적지 · 항해 경로"))
             st.markdown("<div style='height:1px;background:#e5e7eb;margin:12px 0'></div>", unsafe_allow_html=True)
             st.caption("배정 선박")
