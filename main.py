@@ -673,6 +673,9 @@ def accept_annual_quest(ship_id):
         ship["emergency_quest_year"] = quest["year"]
         quest["status"] = "accepted"
         quest["ship_id"] = ship["id"]
+        st.session_state.event_log.append(
+            f"{quest['year']}년 긴급 운송 의뢰 수락 · {ship['name']} · {quest['destination']} · 보상 {money_label(quest['reward'])}"
+        )
         # 긴급 의뢰 수락 알림은 일반 상단 메시지와 분리해 턴 진행 영역 아래에 표시한다.
         st.session_state.quest_accept_feedback = f"{quest['year']}년 긴급 의뢰 수락! {ship['name']}이(가) {quest['destination']}으로 출항합니다."
 
@@ -768,11 +771,17 @@ def show_annual_quest_panel():
             with right:
                 if st.button("거절", key=f"decline_quest_popup_{quest['year']}", use_container_width=True):
                     quest["status"] = "declined"
+                    st.session_state.event_log.append(
+                        f"{quest['year']}년 긴급 운송 의뢰 거절 · {quest['destination']} · {quest['ship_type']} 필요"
+                    )
                     st.rerun()
         else:
             st.warning(f"현재 부산항에 정박 중인 {quest['ship_type']}이 없어 수락할 수 없습니다.")
             if st.button("확인", key=f"close_quest_popup_{quest['year']}", use_container_width=True):
                 quest["status"] = "declined"
+                st.session_state.event_log.append(
+                    f"{quest['year']}년 긴급 운송 의뢰 종료 · {quest['ship_type']} 선박이 없어 수락 불가"
+                )
                 st.rerun()
 
 def assign_destination(destination_name, ship=None):
@@ -940,16 +949,8 @@ def arrive(ship):
         fee_note += f" · 항만 친환경 보너스 {money_label(benefit['arrival_bonus'])} 지급"
     add_history()
 
-    return_weather_options = [
-        {"name": "순풍", "description": "귀항 중 순풍이 불고 있습니다."},
-        {"name": "잔잔한 바다", "description": "귀항 중 바다가 잔잔합니다."},
-        {"name": "짙은 안개", "description": "귀항 중 시야가 제한됩니다. 부정적인 해상 사건에 유의하세요."},
-        {"name": "폭풍", "description": "귀항 중 기상이 악화되었습니다. 부정적인 해상 사건에 특히 유의하세요."},
-    ]
-    return_weather = random.choices(return_weather_options, weights=[4, 4, 1, 1], k=1)[0]
-    ship["weather"] = return_weather["name"]
-    ship["weather_note"] = return_weather["description"]
-    # 날씨는 운임을 변경하지 않고, 이후 부정적 사건의 발생 가중치에만 영향을 준다.
+    # 출항 시 정해진 날씨를 귀항까지 유지한다. 목적지 선택이나 도착 시 새 날씨를 뽑지 않는다.
+    # 날씨는 운임을 변경하지 않고, 항해 중 사건 발생 가중치에만 영향을 준다.
     ship["income_weather_rate"] = 1.0
     return_duration = max(1, actual_years(destination_name))
     # 왕복 전체 기간을 유지한다. 여기서 편도 기간을 다시 더하지 않는다.
@@ -959,7 +960,7 @@ def arrive(ship):
     sync_ship_map_progress(ship)
     ship["voyage_event_count"] = 0
     loyalty_note = f" · 단골 할인 {money_label(loyalty_discount)}" if loyalty_discount else ""
-    arrival_message = f"{ship['name']} 목적지 도착! 정박비 {money_label(port_fee)} 지출{loyalty_note} · 귀항 날씨: {return_weather['name']} · {fee_note} 운임은 부산 도착 후 정산됩니다."
+    arrival_message = f"{ship['name']} 목적지 도착! 정박비 {money_label(port_fee)} 지출{loyalty_note} · 출항 시 날씨: {ship.get('weather', '미정')} · {fee_note} 운임은 부산 도착 후 정산됩니다."
     previous_feedback = st.session_state.get("return_feedback", "")
     st.session_state.return_feedback = (previous_feedback + "  " + arrival_message).strip()
 
@@ -981,6 +982,18 @@ def settle_return(ship):
     st.session_state.voyage_count = int(st.session_state.get("voyage_count", 0)) + 1
     st.session_state.cumulative_voyage_income = int(st.session_state.get("cumulative_voyage_income", 0)) + income
     destination_name = ship.get("dest")
+    # 귀항 정산 때 선박·목적지별 수익을 별도 기록해 대시보드에서 확인한다.
+    voyage_record = {
+        "year": int(st.session_state.year),
+        "ship_name": str(ship.get("name", "선박")),
+        "ship_type": str(ship.get("type", "선종 미상")),
+        "destination": str(destination_name or "목적지 미상"),
+        "income": int(income),
+        "destination_fee": int(ship.get("port_fee_paid", 0) or 0),
+        "busan_fee": int(busan_fee),
+        "net_income": int(income) - int(ship.get("port_fee_paid", 0) or 0) - int(busan_fee),
+    }
+    st.session_state.setdefault("voyage_history", []).append(voyage_record)
     tier_message = ""
     if destination_name:
         visits = st.session_state.port_visits.get(destination_name, 0)
@@ -1259,10 +1272,20 @@ def make_route_map():
     fig = go.Figure()
     # 부산은 출발항, 나머지는 클릭해서 고를 수 있는 목적지 핀
     destination_names = [d["name"] for d in DESTINATIONS]
-    pin_names = ["부산"] + destination_names
+    selected = selected_ship()
+    selected_type = selected.get("type") if selected else None
+    # 특수 터미널과 어장 핀은 해당 선종을 선택했을 때만 지도에 표시한다.
+    special_names = [name for name, data in SPECIAL_PORTS.items()
+                     if selected_type in data["ship_types"]]
+    fishing_names = list(FISHING_GROUNDS) if selected_type == "어선" else []
+    extra_names = special_names + fishing_names
+    extra_coords = {**{name: data["coords"] for name, data in SPECIAL_PORTS.items()},
+                    **{name: data["coords"] for name, data in FISHING_GROUNDS.items()}}
+    pin_names = ["부산"] + destination_names + extra_names
+    pin_coords = {**PORT_COORDS, **extra_coords}
     fig.add_trace(go.Scattermap(
-        lat=[PORT_COORDS[name][0] for name in pin_names],
-        lon=[PORT_COORDS[name][1] for name in pin_names],
+        lat=[pin_coords[name][0] for name in pin_names],
+        lon=[pin_coords[name][1] for name in pin_names],
         mode="markers+text",
         marker={"size": [19 if name == "부산" else 23 for name in pin_names],
                 "color": ["#ff6b6b" if name == "부산" else "#f2c14e" for name in pin_names]},
@@ -1297,7 +1320,6 @@ def make_route_map():
             textfont={"color": "#ffffff", "size": 12}, name=f"{ship['name']} 위치",
             hovertemplate=f"{ship['name']} · {ship.get('type', '')}<extra></extra>",
         ))
-    selected = selected_ship()
     dest_name = selected.get("dest") if selected else None
 
     if dest_name in PORT_COORDS:
@@ -1519,6 +1541,9 @@ def advance_turn():
     old_quest = st.session_state.get("annual_quest")
     if old_quest and old_quest.get("status") == "open":
         old_quest["status"] = "expired"
+        st.session_state.event_log.append(
+            f"{old_quest['year']}년 긴급 운송 의뢰 만료 · {old_quest['destination']}"
+        )
     if new_year in QUEST_YEARS and st.session_state.get("annual_quest_year") != new_year:
         generate_annual_quest(new_year)
     animation_ships = []
@@ -1669,7 +1694,19 @@ with map_col:
     if travelling_ships:
         # 기존 Leaflet iframe/JS 이동 방식을 유지한다. 출항 직후에는 멈춰 있고, 턴 버튼으로만 애니메이션을 재생한다.
         map_config = {
-            "ports": [{"name": name, "lat": coords[0], "lon": coords[1]} for name, coords in PORT_COORDS.items()],
+            "ports": (
+                [{"name": name, "lat": coords[0], "lon": coords[1]} for name, coords in PORT_COORDS.items()]
+                + [
+                    {"name": name, "lat": data["coords"][0], "lon": data["coords"][1]}
+                    for name, data in SPECIAL_PORTS.items()
+                    if selected_ship() and selected_ship().get("type") in data["ship_types"]
+                ]
+                + [
+                    {"name": name, "lat": data["coords"][0], "lon": data["coords"][1]}
+                    for name, data in FISHING_GROUNDS.items()
+                    if selected_ship() and selected_ship().get("type") == "어선"
+                ]
+            ),
             "ships": (
                 # 이번 턴의 애니메이션 스냅샷을 그대로 JS에 전달한다.
                 # 여기서 일반 선박 상태로 다시 변환하면 end/turn_step/왕복 항로가 사라져
@@ -2003,19 +2040,9 @@ with info_col:
                     cancel_departure(pending_ship)
                     st.rerun()
             st.info("지도에서 목적지 핀을 선택하거나 목적항 선택 메뉴를 열어 목적지를 설정하세요.")
-            if available_destinations:
-                manual_port = st.selectbox("목적항 / 어장 선택", available_destinations, key="manual_destination")
-                if st.button("목적지 배정 / 정보 보기", key="manual_destination_pick", disabled=not can_choose, use_container_width=True):
-                    if assign_destination(manual_port, ship):
-                        st.session_state.msg = f"{ship['name']}의 목적지가 {manual_port}(으)로 설정되었습니다."
-                    st.rerun()
-            else:
-                st.warning("이 선박이 이용할 수 있는 특수 목적지가 없습니다.")
+            if not available_destinations:
+                st.warning("이 선박이 이용할 수 있는 목적지가 없습니다.")
 
-if st.session_state.event_log:
-    with st.expander("📜 최근 해상 사건 기록"):
-        for event_line in st.session_state.event_log[-8:][::-1]:
-            st.write(f"• {event_line}")
 
 st.subheader("업그레이드 상점")
 eq_tab, tr_tab, ship_tab = st.tabs(["탄소 기술 연구", "운송 강화", "선박 구매"])
