@@ -1,8 +1,6 @@
 import random
 import json
 import html
-import time
-from decimal import Decimal, ROUND_HALF_UP
 import streamlit as st
 import streamlit.components.v1 as components
 import plotly.graph_objects as go
@@ -22,18 +20,17 @@ MAX_FISHING_SHIPS = 2  # 어선은 최대 2척
 DESTINATIONS = [
     {"name": "도쿄", "years": 1, "income": 15 * MONEY_SCALE, "fee": 2 * MONEY_SCALE},
     {"name": "상하이", "years": 1, "income": 17 * MONEY_SCALE, "fee": 2.5 * MONEY_SCALE},
+    {"name": "타이베이", "years": 1, "income": 16 * MONEY_SCALE, "fee": 2 * MONEY_SCALE},
     {"name": "홍콩", "years": 2, "income": 32 * MONEY_SCALE, "fee": 3 * MONEY_SCALE},
     {"name": "싱가포르", "years": 2, "income": 36 * MONEY_SCALE, "fee": 4 * MONEY_SCALE},
     {"name": "로테르담", "years": 3, "income": 57 * MONEY_SCALE, "fee": 3.5 * MONEY_SCALE},
     {"name": "로스앤젤레스", "years": 3, "income": 54 * MONEY_SCALE, "fee": 4 * MONEY_SCALE},
-    {"name": "케이프타운", "years": 3, "income": 60 * MONEY_SCALE, "fee": 4 * MONEY_SCALE},
 ]
 
 TRANSPORT = [
     {"id": 1, "name": "화물 적재함 확장", "price": 25 * MONEY_SCALE, "effect": "모든 항해 수익 +10%"},
     {"id": 2, "name": "대형 선체로 교체", "price": 80 * MONEY_SCALE, "effect": "모든 항해 수익 +25%"},
     {"id": 3, "name": "자동화 하역 시스템", "price": 15 * MONEY_SCALE, "effect": "부산항을 포함한 정박비 1단계당 25% 할인 (최대 75%)"},
-    {"id": 4, "name": "목적항 자동 고정 시스템", "price": 10 * MONEY_SCALE, "effect": "선박별 고정 목적항을 저장해 부산 귀항 후 자동 배정 (출항은 직접 명령)"},
 ]
 
 
@@ -118,7 +115,7 @@ PORT_COORDS = {
     "상하이": (31.2304, 121.4737),
     "싱가포르": (1.3521, 103.8198),
     "로테르담": (51.9244, 4.4777),
-    "케이프타운": (-33.9249, 18.4241),
+    "타이베이": (25.0330, 121.5654),
     "홍콩": (22.3193, 114.1694),
     "로스앤젤레스": (33.7405, -118.2720),
 }
@@ -129,7 +126,7 @@ SEA_ROUTES = {
     "상하이": [PORT_COORDS["부산"], (34.2, 127.0), (32.5, 125.5), PORT_COORDS["상하이"]],
     "싱가포르": [PORT_COORDS["부산"], (30.0, 125.0), (25.0, 121.0), (20.0, 117.0), (14.0, 112.0), (8.0, 108.0), PORT_COORDS["싱가포르"]],
     "로테르담": [PORT_COORDS["부산"], (30.0, 125.0), (22.0, 120.0), (15.0, 115.0), (8.0, 105.0), (1.5, 103.5), (-5.0, 105.0), (-10.0, 110.0), (-20.0, 95.0), (-30.0, 65.0), (-25.0, 35.0), (-10.0, 15.0), (5.0, 5.0), (20.0, -5.0), (35.0, -10.0), (43.0, -8.0), (48.0, -3.0), PORT_COORDS["로테르담"]],
-    "케이프타운": [PORT_COORDS["부산"], (30.0, 125.0), (20.0, 120.0), (10.0, 110.0), (1.3, 104.0), (-8.0, 90.0), (-20.0, 65.0), (-30.0, 40.0), PORT_COORDS["케이프타운"]],
+    "타이베이": [PORT_COORDS["부산"], (32.0, 126.0), (28.0, 124.0), PORT_COORDS["타이베이"]],
     "홍콩": [PORT_COORDS["부산"], (30.0, 125.0), (25.0, 121.0), PORT_COORDS["홍콩"]],
     "로스앤젤레스": [PORT_COORDS["부산"], (30.0, 145.0), (25.0, 170.0), (30.0, -160.0), (33.0, -140.0), (34.0, -120.0), PORT_COORDS["로스앤젤레스"]],
     "LNG 터미널": [PORT_COORDS["부산"], (30.0, 125.0), (20.0, 118.0), (10.0, 110.0), SPECIAL_PORTS["LNG 터미널"]["coords"]],
@@ -194,7 +191,6 @@ def new_ship_state(ship_id, name, ship_type, price):
     return {
         "id": ship_id, "name": name, "type": ship_type, "price": price,
         "status": "docked", "phase": "docked", "dest": None,
-        "fixed_destination": None,
         "years_left": 0, "leg_years": 0, "trip_elapsed": 0, "waiting_for_turn": False, "pos": 0, "total": 0,
         "weather": None, "weather_note": "", "voyage_income": 0,
         "returning_income": 0, "port_fee_paid": 0,
@@ -301,11 +297,6 @@ def init():
         "result": None,
         "fail_reason": "",
         "msg": "",
-        "msg_type": "success",
-        "purchase_feedback": "",
-        "purchase_feedback_type": "error",
-        "last_map_pin_selection": None,
-        "recent_action_times": {},
         "return_feedback": "",
         "balloons_shown": False,
         "weather": None,
@@ -315,6 +306,7 @@ def init():
         "event_pending": None,
         "show_empty_destination_warning": False,
         "confirm_empty_destination_turn": False,
+        "departure_required_warning": False,
         "last_event_title": None,
         "voyage_event_count": 0,
         "port_fee_paid": 0,
@@ -375,11 +367,6 @@ def reset_game():
         "result": None,
         "fail_reason": "",
         "msg": "",
-        "msg_type": "success",
-        "purchase_feedback": "",
-        "purchase_feedback_type": "error",
-        "last_map_pin_selection": None,
-        "recent_action_times": {},
         "return_feedback": "",
         "balloons_shown": False,
         "weather": None,
@@ -389,6 +376,7 @@ def reset_game():
         "event_pending": None,
         "show_empty_destination_warning": False,
         "confirm_empty_destination_turn": False,
+        "departure_required_warning": False,
         "last_event_title": None,
         "voyage_event_count": 0,
         "port_fee_paid": 0,
@@ -412,11 +400,6 @@ def reset_game():
     st.session_state.captain_name = saved_captain_name
     st.session_state.registered_company_name = saved_company_name
     st.session_state.registered_captain_name = saved_captain_name
-    clear_purchase_feedback()
-    st.session_state.msg = ""
-    st.session_state.msg_type = "success"
-    st.session_state.last_map_pin_selection = None
-    st.session_state.recent_action_times = {}
     ensure_port_congestion()
     ensure_fleet_fields()
 
@@ -434,8 +417,7 @@ def get_discounted_berth_fee(port, fee):
     """기존 혜택 적용 후 정박비에 단골 할인을 적용하고 만원 단위로 반올림한다."""
     visits = st.session_state.get("port_visits", {}).get(port, 0)
     discount = get_tier(visits)["discount"]
-    rounded_units = (Decimal(int(fee)) * Decimal(100 - discount) / Decimal(100) / Decimal(10_000)).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
-    discounted_fee = int(rounded_units * Decimal(10_000))
+    discounted_fee = int(round(int(fee) * (100 - discount) / 100 / 10_000) * 10_000)
     return discounted_fee
 
 
@@ -444,37 +426,6 @@ def port_visit_defaults():
     names = ([item["name"] for item in DESTINATIONS]
              + list(SPECIAL_PORTS.keys()) + list(FISHING_GROUNDS.keys()))
     return {name: 0 for name in names}
-
-
-def set_message(message, message_type="success"):
-    """일반 안내 문구와 표시 유형을 함께 저장한다."""
-    st.session_state.msg = str(message)
-    st.session_state.msg_type = message_type
-
-
-def clear_purchase_feedback():
-    """구매 이외의 동작이 발생하면 이전 구매 안내를 지운다."""
-    st.session_state.purchase_feedback = ""
-    st.session_state.purchase_feedback_type = "error"
-
-
-def allow_action_once(action_key, cooldown=0.8):
-    """짧은 시간 안에 같은 조작이 다시 전달되면 중복 실행을 막는다."""
-    now = time.monotonic()
-    recent = st.session_state.setdefault("recent_action_times", {})
-    last_time = float(recent.get(action_key, 0.0))
-    if now - last_time < cooldown:
-        return False
-    recent[action_key] = now
-    return True
-
-
-def clean_ship_name(value):
-    """선박 이름에서 보이지 않는 문자 등을 제거하고 12자로 제한한다."""
-    value = str(value or "")
-    for character in ("\u200b", "\u200c", "\u200d", "\ufeff", "\u2060"):
-        value = value.replace(character, "")
-    return value.strip()[:12]
 
 
 def money_label(amount):
@@ -513,21 +464,6 @@ def selected_ship():
     return next((ship for ship in fleet if ship["id"] == wanted), fleet[0] if fleet else None)
 
 
-def destinations_for_ship(ship):
-    """선종과 해금 상태에 맞는 목적항 목록을 반환한다."""
-    if not ship:
-        return []
-    ship_type = ship.get("type", "기본 화물선")
-    if ship_type == "어선":
-        return list(FISHING_GROUNDS)
-    names = [item["name"] for item in DESTINATIONS]
-    names.extend(
-        name for name in st.session_state.get("unlocked_special_ports", [])
-        if name in SPECIAL_PORTS and ship_type in SPECIAL_PORTS[name]["ship_types"]
-    )
-    return list(dict.fromkeys(names))
-
-
 def ship_price(ship_type):
     base_price = SHIP_TYPES[ship_type]["base_price"]
     levels = st.session_state.get("research_levels", {})
@@ -536,7 +472,7 @@ def ship_price(ship_type):
 
 
 def buy_ship(ship_type, ship_name):
-    ship_name = clean_ship_name(ship_name)
+    ship_name = (ship_name or "").strip()
     st.session_state.purchase_feedback = ""
     st.session_state.purchase_feedback_type = "error"
     if st.session_state.phase == "ended":
@@ -575,33 +511,31 @@ def buy_ship(ship_type, ship_name):
 
 
 def rename_ship(ship_id, new_name):
-    clear_purchase_feedback()
-    new_name = clean_ship_name(new_name)
+    new_name = (new_name or "").strip()
     ship = next((s for s in st.session_state.fleet if s["id"] == ship_id), None)
     if not ship:
         return
     if not new_name:
-        set_message("선박 이름을 입력해 주세요.", "error")
+        st.session_state.msg = "선박 이름을 입력해 주세요."
         return
-    if any(s["id"] != ship_id and clean_ship_name(s["name"]).casefold() == new_name.casefold() for s in st.session_state.fleet):
-        set_message("이미 사용 중인 선박 이름입니다. 다른 이름을 입력해 주세요.", "error")
+    if any(s["id"] != ship_id and s["name"].casefold() == new_name.casefold() for s in st.session_state.fleet):
+        st.session_state.msg = "이미 사용 중인 선박 이름입니다. 다른 이름을 입력해 주세요."
         return
     old_name = ship["name"]
     ship["name"] = new_name
-    set_message(f"선박 이름을 {old_name}에서 {new_name}(으)로 변경했습니다.")
+    st.session_state.msg = f"선박 이름을 {old_name}에서 {new_name}(으)로 변경했습니다."
 
 
 def sell_ship(ship_id):
-    clear_purchase_feedback()
     # 회사 운영을 위해 마지막 남은 선박은 판매할 수 없다.
     if len(st.session_state.get("fleet", [])) <= 1:
-        set_message("선박이 1척만 남아 있을 때는 판매할 수 없습니다. 먼저 다른 선박을 구매해 주세요.", "warning")
+        st.session_state.msg = "선박이 1척만 남아 있을 때는 판매할 수 없습니다. 먼저 다른 선박을 구매해 주세요."
         return
     ship = next((s for s in st.session_state.fleet if s["id"] == ship_id), None)
     if not ship:
         return
     if ship.get("status", ship.get("phase", "docked")) != "docked":
-        set_message("운항 중인 선박은 판매할 수 없습니다. 부산항에 정박시킨 뒤 판매해 주세요.", "error")
+        st.session_state.msg = "운항 중인 선박은 판매할 수 없습니다. 부산항에 정박시킨 뒤 판매해 주세요."
         return
     # 연도에 따라 구매가의 70~80%를 환급한다.
     refund_rate = 0.70 + ((int(st.session_state.year) + int(ship["id"])) % 11) / 100
@@ -613,36 +547,31 @@ def sell_ship(ship_id):
     if st.session_state.get("selected_ship_id") == ship_id:
         st.session_state.pending_selected_ship_id = st.session_state.fleet[0]["id"]
     st.session_state.selected_port = None
-    set_message(f"{ship['name']} 판매 완료! 구매가의 {round(refund_rate*100)}%인 {money_label(refund)}을 받았습니다.")
+    st.session_state.msg = f"{ship['name']} 판매 완료! 구매가의 {round(refund_rate*100)}%인 {money_label(refund)}을 받았습니다."
     add_history()
 
 
-def research_next_stage(tech_id, expected_level=None):
-    clear_purchase_feedback()
+def research_next_stage(tech_id):
     if st.session_state.phase == "ended":
         return
     tech = next((t for t in RESEARCH_TECHS if t["id"] == tech_id), None)
     if tech is None:
         return
     level = int(st.session_state.research_levels.get(tech_id, 0))
-    if expected_level is not None and level != int(expected_level):
-        return
-    if not allow_action_once(f"research:{tech_id}"):
-        return
     if level >= len(tech["stages"]):
         return
     stage = tech["stages"][level]
     if st.session_state.money < stage["price"]:
-        set_message("연구비가 부족합니다.", "warning")
+        st.session_state.msg = "연구비가 부족합니다."
         return
     st.session_state.money -= stage["price"]
     st.session_state.research_levels[tech_id] = level + 1
-    set_message(f"{tech['name']} {level + 1}단계 연구 완료! 회사 전체 배출량 -{stage['reduction']}%p")
+    st.session_state.msg = f"{tech['name']} {level + 1}단계 연구 완료! 회사 전체 배출량 -{stage['reduction']}%p"
     add_history()
     if current_emission() == 0:
         st.session_state.phase = "ended"
         st.session_state.result = "success"
-        set_message("회사 전체 배출량 0% 달성! 탄소중립 성공!")
+        st.session_state.msg = "회사 전체 배출량 0% 달성! 탄소중립 성공!"
 
 
 def income_multiplier():
@@ -718,16 +647,15 @@ def generate_annual_quest(year):
     st.session_state.annual_quest_year = int(year)
 
 def accept_annual_quest(ship_id):
-    clear_purchase_feedback()
     quest = st.session_state.get("annual_quest")
     ship = get_ship(ship_id)
     if not quest or quest.get("status") != "open" or not ship:
         return
     if ship.get("type") != quest["ship_type"]:
-        set_message(f"이 의뢰는 {quest['ship_type']}만 수락할 수 있습니다.", "warning")
+        st.session_state.msg = f"이 의뢰는 {quest['ship_type']}만 수락할 수 있습니다."
         return
     if ship.get("status", "docked") != "docked":
-        set_message("부산항에 정박 중인 선박만 의뢰를 수락할 수 있습니다.", "warning")
+        st.session_state.msg = "부산항에 정박 중인 선박만 의뢰를 수락할 수 있습니다."
         return
     if st.session_state.phase == "ended":
         return
@@ -736,10 +664,6 @@ def accept_annual_quest(ship_id):
     ship["_accepting_urgent_quest"] = True
     start_voyage(quest["destination"], ship)
     ship.pop("_accepting_urgent_quest", None)
-    if ship.get("status") != "outbound":
-        ship["dest"] = None
-        st.session_state.selected_port = None
-        return
     if ship.get("status") == "outbound":
         base_income = int(actual_income(quest["destination"], ship))
         weather_rate = float(ship.get("income_weather_rate", 1.0))
@@ -846,7 +770,6 @@ def show_annual_quest_panel():
                     st.rerun()
             with right:
                 if st.button("거절", key=f"decline_quest_popup_{quest['year']}", use_container_width=True):
-                    clear_purchase_feedback()
                     quest["status"] = "declined"
                     st.session_state.event_log.append(
                         f"{quest['year']}년 긴급 운송 의뢰 거절 · {quest['destination']} · {quest['ship_type']} 필요"
@@ -855,7 +778,6 @@ def show_annual_quest_panel():
         else:
             st.warning(f"현재 부산항에 정박 중인 {quest['ship_type']}이 없어 수락할 수 없습니다.")
             if st.button("확인", key=f"close_quest_popup_{quest['year']}", use_container_width=True):
-                clear_purchase_feedback()
                 quest["status"] = "declined"
                 st.session_state.event_log.append(
                     f"{quest['year']}년 긴급 운송 의뢰 종료 · {quest['ship_type']} 선박이 없어 수락 불가"
@@ -864,19 +786,18 @@ def show_annual_quest_panel():
 
 def assign_destination(destination_name, ship=None):
     """선택한 정박 선박에 목적지를 배정한다. 실제 출항은 출항 버튼으로 시작한다."""
-    clear_purchase_feedback()
     ship = ship or selected_ship()
     if not ship or ship.get("status", ship.get("phase", "docked")) != "docked":
         return False
     ship_type = ship.get("type", "기본 화물선")
     if destination_name in FISHING_GROUNDS and ship_type != "어선":
-        set_message("어장에는 어선만 목적지를 배정할 수 있습니다.", "warning")
+        st.session_state.msg = "어장에는 어선만 목적지를 배정할 수 있습니다."
         return False
     if ship_type == "어선" and destination_name not in FISHING_GROUNDS:
-        set_message("어선은 지정된 어장으로만 목적지를 배정할 수 있습니다.", "warning")
+        st.session_state.msg = "어선은 지정된 어장으로만 목적지를 배정할 수 있습니다."
         return False
     if destination_name in SPECIAL_PORTS and ship_type not in SPECIAL_PORTS[destination_name]["ship_types"]:
-        set_message("이 특수 항구는 해당 선종만 이용할 수 있습니다.", "warning")
+        st.session_state.msg = "이 특수 항구는 해당 선종만 이용할 수 있습니다."
         return False
     ship["dest"] = destination_name
     st.session_state.selected_port = destination_name
@@ -884,53 +805,29 @@ def assign_destination(destination_name, ship=None):
     st.session_state.show_empty_destination_warning = False
     st.session_state.confirm_empty_destination_turn = False
     # 핀 선택만으로는 경고를 띄우지 않고, 다음 해로를 눌렀을 때 출항 필요 안내를 표시한다.
+    st.session_state.departure_required_warning = False
     return True
-
-
-def estimated_voyage_port_fees(destination_name):
-    """목적지 정박비와 부산 귀항 정박비를 출항 전 기준으로 계산한다."""
-    destination = next((item for item in DESTINATIONS if item["name"] == destination_name), None)
-    if destination is None:
-        destination = SPECIAL_PORTS.get(destination_name) or FISHING_GROUNDS.get(destination_name)
-    if destination is None or destination_name in FISHING_GROUNDS:
-        destination_fee = 0
-    elif destination_name in [item["name"] for item in DESTINATIONS]:
-        destination_fee, _ = discounted_port_fee(destination_name)
-    else:
-        discount = handling_discount_percent()
-        destination_fee = round(int(destination.get("fee", 0)) * (100 - discount) / 100)
-    destination_fee = get_discounted_berth_fee(destination_name, int(destination_fee))
-    busan_fee = round(1 * MONEY_SCALE * (100 - handling_discount_percent()) / 100)
-    return max(0, int(destination_fee)) + max(0, int(busan_fee))
 
 
 def start_voyage(destination_name, ship=None):
     """선택한 선박의 목적지만 설정하고 출항 애니메이션을 시작한다. 연도는 진행하지 않는다."""
-    clear_purchase_feedback()
     ship = ship or selected_ship()
     if not ship or ship.get("status", ship.get("phase", "docked")) != "docked" or st.session_state.phase == "ended":
         return
     ship_type = ship.get("type", "기본 화물선")
     if destination_name in FISHING_GROUNDS and ship_type != "어선":
-        set_message("어장에는 어선만 출항할 수 있습니다.", "warning")
+        st.session_state.msg = "어장에는 어선만 출항할 수 있습니다."
         return
     if ship_type == "어선" and destination_name not in FISHING_GROUNDS:
-        set_message("어선은 지정된 어장으로만 출항할 수 있습니다.", "warning")
+        st.session_state.msg = "어선은 지정된 어장으로만 출항할 수 있습니다."
         return
     if destination_name in SPECIAL_PORTS and ship_type not in SPECIAL_PORTS[destination_name]["ship_types"]:
-        set_message("이 특수 항구는 해당 선종만 이용할 수 있습니다.", "warning")
+        st.session_state.msg = "이 특수 항구는 해당 선종만 이용할 수 있습니다."
         return
     if destination_name not in [item["name"] for item in DESTINATIONS] and destination_name not in SPECIAL_PORTS and destination_name not in FISHING_GROUNDS:
-        set_message("유효하지 않은 목적지입니다.", "error")
+        st.session_state.msg = "유효하지 않은 목적지입니다."
         return
     duration = actual_years(destination_name)
-    if int(st.session_state.year) + int(duration) > END_YEAR:
-        set_message(f"이 항로는 왕복 {duration}년이 필요해 {END_YEAR}년을 넘습니다. 출항할 수 없습니다.", "warning")
-        return
-    required_fees = estimated_voyage_port_fees(destination_name)
-    if int(st.session_state.money) < required_fees:
-        set_message(f"예상 정박비({money_label(required_fees)})가 보유 자금보다 많아 출항할 수 없습니다.", "warning")
-        return
     weather_options = [
         {"name": "순풍", "description": "순풍이 불고 있습니다. 운항 조건이 양호합니다."},
         {"name": "잔잔한 바다", "description": "바다가 잔잔합니다. 안정적인 운항 조건입니다."},
@@ -956,23 +853,15 @@ def start_voyage(destination_name, ship=None):
         "is_urgent_quest": bool(ship.get("_accepting_urgent_quest", False)),
     })
     set_ship_status(ship, "outbound")
+    st.session_state.departure_required_warning = False
     sync_ship_map_progress(ship)
-    set_message(f"{ship['name']} 출항! {weather['description']}")
+    st.session_state.msg = f"{ship['name']} 출항! {weather['description']}"
 
 
 def cancel_departure(ship=None):
-    """출항 대기 또는 출항 직후의 운항을 취소하고 목적지 선택 상태로 되돌린다."""
-    clear_purchase_feedback()
+    """다음 해로 진행하기 전 출항 준비를 취소하고 목적지 선택 상태로 되돌린다."""
     ship = ship or selected_ship()
     if not ship:
-        return
-    # 고정 목적항이 부산 귀항 후 자동 배정된 상태도 출항 전에 취소할 수 있다.
-    if ship.get("status", ship.get("phase")) == "docked" and ship.get("dest"):
-        cancelled_destination = ship.get("dest")
-        ship["dest"] = None
-        if st.session_state.get("selected_ship_id") == ship.get("id"):
-            st.session_state.selected_port = None
-        set_message(f"{cancelled_destination} 목적항 배정을 취소했습니다. 고정 목적항 설정은 유지됩니다.")
         return
     if (ship.get("status", ship.get("phase")) == "outbound"
             and int(ship.get("trip_elapsed", 0)) == 0
@@ -986,23 +875,11 @@ def cancel_departure(ship=None):
         })
         set_ship_status(ship, "docked")
         sync_ship_map_progress(ship)
-        quest = st.session_state.get("annual_quest")
-        if (quest and quest.get("status") == "accepted"
-                and quest.get("ship_id") == ship.get("id")
-                and int(quest.get("year", -1)) == int(st.session_state.year)):
-            quest["status"] = "open"
-            quest["ship_id"] = None
-            ship["emergency_quest_bonus"] = 0
-            ship["emergency_quest_year"] = None
-            st.session_state.event_log.append(
-                f"{quest['year']}년 긴급 운송 의뢰 수락 취소 · {quest['destination']} · 다시 수락 가능"
-            )
         st.session_state.selected_port = None
-        set_message("출항을 취소했습니다. 목적지를 다시 선택할 수 있습니다.")
+        st.session_state.msg = "출항을 취소했습니다. 목적지를 다시 선택할 수 있습니다."
 
 
 def pause_voyage(ship=None):
-    clear_purchase_feedback()
     ship = ship or selected_ship()
     if ship and ship.get("status", ship.get("phase")) == "outbound":
         duration = max(1, actual_years(ship.get("dest")))
@@ -1010,21 +887,16 @@ def pause_voyage(ship=None):
         ship["leg_years"] = duration
         set_ship_status(ship, "returning")
         sync_ship_map_progress(ship)
-        set_message(f"{ship['name']} 회항을 시작합니다.")
+        st.session_state.msg = f"{ship['name']} 회항을 시작합니다."
 
 
-def buy_transport(item_id, expected_level=None):
-    clear_purchase_feedback()
+def buy_transport(item_id):
     if st.session_state.phase == "ended":
         return
     item = next(item for item in TRANSPORT if item["id"] == item_id)
     if item_id == 3:
         levels = st.session_state.setdefault("transport_levels", {})
         level = int(levels.get("handling", 0))
-        if expected_level is not None and level != int(expected_level):
-            return
-        if not allow_action_once(f"transport:{item_id}"):
-            return
         prices = [15, 25, 40]
         if level >= 3 or st.session_state.money < prices[level] * MONEY_SCALE:
             return
@@ -1033,13 +905,13 @@ def buy_transport(item_id, expected_level=None):
         levels["handling"] = level + 1
         if 3 not in st.session_state.bought_tr:
             st.session_state.bought_tr.append(3)
-        set_message(f"자동화 하역 시스템 {level + 1}단계 완료! 모든 항구 및 부산항 정박비 {25 * (level + 1)}% 할인.")
+        st.session_state.msg = f"자동화 하역 시스템 {level + 1}단계 완료! 모든 항구 및 부산항 정박비 {25 * (level + 1)}% 할인."
     else:
         if item_id in st.session_state.bought_tr or st.session_state.money < item["price"]:
             return
         st.session_state.money -= item["price"]
         st.session_state.bought_tr.append(item_id)
-        set_message(f"{item['name']} 구매 완료!")
+        st.session_state.msg = f"{item['name']} 구매 완료!"
     add_history()
 
 
@@ -1069,7 +941,7 @@ def arrive(ship):
     port_fee = get_discounted_berth_fee(destination_name, fee_before_loyalty)
     loyalty_discount = fee_before_loyalty - int(port_fee)
     ship["loyalty_discount_paid"] = int(ship.get("loyalty_discount_paid", 0)) + loyalty_discount
-    st.session_state.money = max(0, int(st.session_state.money) - int(port_fee))
+    st.session_state.money -= int(port_fee)
     ship["port_fee_paid"] = int(ship.get("port_fee_paid", 0)) + int(port_fee)
     fee_note = benefit["note"]
     if benefit["arrival_bonus"]:
@@ -1103,7 +975,7 @@ def settle_return(ship):
     congestion_adjustment = round(base_income * congestion_modifier)
     income = base_income + congestion_adjustment
     busan_fee = round(1 * MONEY_SCALE * (100 - handling_discount_percent()) / 100)
-    st.session_state.money = max(0, int(st.session_state.money) - int(busan_fee))
+    st.session_state.money -= busan_fee
     quest_bonus = int(ship.get("emergency_quest_bonus", 0) or 0)
     income += quest_bonus
     st.session_state.money += income
@@ -1135,11 +1007,7 @@ def settle_return(ship):
     add_history()
     ship_name = ship.get("name", "선박")
     quest_note = f" (긴급 의뢰 보상 포함 +{money_label(quest_bonus)})" if quest_bonus else ""
-    fixed_destination = ship.get("fixed_destination")
-    valid_fixed_destinations = destinations_for_ship(ship)
-    if fixed_destination not in valid_fixed_destinations:
-        fixed_destination = None
-    ship.update({"dest": fixed_destination, "years_left": 0, "leg_years": 0,
+    ship.update({"dest": None, "years_left": 0, "leg_years": 0,
                  "trip_elapsed": 0, "waiting_for_turn": False,
                  "weather": None, "weather_note": "", "voyage_income": 0,
                  "returning_income": 0, "port_fee_paid": 0,
@@ -1148,11 +1016,6 @@ def settle_return(ship):
                  "congestion_modifier": 0.0, "is_urgent_quest": False})
     set_ship_status(ship, "docked")
     sync_ship_map_progress(ship)
-    # 선박별 목적항 선택 위젯도 고정 목적항과 동기화한다.
-    # 위젯 키가 선박마다 분리되어 있어야 다른 선박의 이전 선택이 덮어쓰지 않는다.
-    st.session_state[f"destination_dropdown_{ship['id']}"] = fixed_destination or destinations_for_ship(ship)[0]
-    if fixed_destination and st.session_state.get("selected_ship_id") == ship.get("id"):
-        st.session_state.selected_port = fixed_destination
     loyalty_discount_paid = int(ship.get("loyalty_discount_paid", 0) or 0)
     ship["loyalty_discount_paid"] = 0
     congestion_sign = "+" if congestion_adjustment > 0 else ""
@@ -1161,8 +1024,6 @@ def settle_return(ship):
                           f"단골 할인 -{money_label(loyalty_discount_paid)}. "
                           f"혼잡 보정 {congestion_sign}{money_label(congestion_adjustment)}.")
     settlement_message += tier_message
-    if fixed_destination:
-        settlement_message += f" 고정 목적항 {fixed_destination}이(가) 자동 배정되었습니다. 출항 명령을 누르면 다시 운항합니다."
     previous_feedback = st.session_state.get("return_feedback", "")
     st.session_state.return_feedback = (previous_feedback + "  " + settlement_message).strip()
 
@@ -1182,7 +1043,7 @@ def check_year_checkpoint():
                 st.session_state.phase = "ended"
                 st.session_state.result = "fail"
                 st.session_state.fail_reason = f"{checkpoint_year}년 점검 실패: 배출량 {emission}% (기준 {limit}% 이하)"
-                set_message("", "success")
+                st.session_state.msg = ""
                 return
             st.session_state.checked.append(checkpoint_year)
             messages.append(f"{checkpoint_year}년 점검 통과!")
@@ -1194,7 +1055,7 @@ def check_year_checkpoint():
             st.session_state.result = "fail"
             st.session_state.fail_reason = f"2050년 최종 점검 실패: 배출량 {emission}% (기준 0%)"
     if messages:
-        set_message(" ".join(messages))
+        st.session_state.msg = " ".join(messages)
     add_history()
 
 
@@ -1286,7 +1147,6 @@ def trigger_random_event(ship=None):
 
 
 def resolve_event(choice_index):
-    clear_purchase_feedback()
     event = st.session_state.event_pending
     if not event:
         return
@@ -1352,43 +1212,38 @@ def resolve_event(choice_index):
         else:
             result += f" (기준 운임의 {percent_adjustment:+g}%, {money_label(adjustment_amount)})"
 
-    st.session_state.money = max(0, int(st.session_state.money) + int(delta))
+    st.session_state.money += delta
     if ship:
         ship.setdefault("event_log", []).append(f"{event['title']}: {result}")
         ship["voyage_event_count"] = ship.get("voyage_event_count", 0) + 1
     st.session_state.event_log.append(f"{event.get('ship_name', '선박')} ({event.get('ship_type', '')}) · {event['title']}: {result}")
     st.session_state.last_event_title = event["title"]
-    set_message(result)
+    st.session_state.msg = result
     st.session_state.event_pending = None
     add_history()
     if current_emission() == 0 and st.session_state.phase != "ended":
         st.session_state.phase = "ended"
         st.session_state.result = "success"
         st.session_state.msg += " 회사 전체 배출량 0% 달성! 탄소중립 성공!"
-
-
-def handle_event_choice(choice_index):
-    """이벤트를 처리한 뒤 지도 바깥의 앱 전체가 아닌 이벤트 영역만 갱신한다."""
-    resolve_event(choice_index)
-    # 이벤트 팝업을 연 전용 fragment만 다시 실행한다.
-    # event_pending이 None이므로 팝업은 닫히고 지도 iframe은 다시 생성되지 않는다.
-    st.rerun(scope="event_popup_host")
+    # st.dialog는 fragment처럼 동작하므로, 이벤트 해결 후 전체 앱을 다시 그려 팝업을 닫는다.
+    st.rerun()
 
 
 @st.dialog("⚠️ 긴급 해상 이벤트", dismissible=False)
 def show_event_dialog():
-    """이벤트 선택지를 표시한다. 선택 처리는 fragment callback에서 수행한다."""
+    """미해결 해상 사건을 모달 팝업으로 표시한다."""
     event = st.session_state.get("event_pending")
-    if event and st.session_state.phase != "ended":
-        st.subheader(f"⚠️ {event['title']}")
-        st.caption(f"발생 선박: {event.get('ship_name', '선박')} · {event.get('ship_type', '선종 미상')}")
-        st.write(event["description"])
-        for i, choice in enumerate(event["choices"]):
-            st.button(
-                choice["label"], key=f"event_modal_choice_{event['title']}_{i}",
-                use_container_width=True, type="primary" if i == 0 else "secondary",
-                on_click=handle_event_choice, args=(i,),
-            )
+    if not event or st.session_state.phase == "ended":
+        return
+    st.subheader(f"⚠️ {event['title']}")
+    st.caption(f"발생 선박: {event.get('ship_name', '선박')} · {event.get('ship_type', '선종 미상')}")
+    st.write(event["description"])
+    for i, choice in enumerate(event["choices"]):
+        if st.button(
+            choice["label"], key=f"event_modal_choice_{event['title']}_{i}",
+            use_container_width=True, type="primary" if i == 0 else "secondary",
+        ):
+            resolve_event(i)
 
 
 def route_position(route, fraction):
@@ -1576,7 +1431,6 @@ if st.session_state.phase == "ended":
     total_income = money_label(st.session_state.get("cumulative_voyage_income", 0))
     fleet_count = len(st.session_state.get("fleet", []))
     voyage_count = int(st.session_state.get("voyage_count", 0))
-    unsettled_ship_count = sum(1 for vessel in st.session_state.get("fleet", []) if vessel.get("status", "docked") in ("outbound", "returning"))
     success = st.session_state.result == "success"
     if success:
         subtitle = "더 나은 바다를 향한 당신의 항해가\n마침내 탄소중립의 항구에 도착했습니다."
@@ -1638,7 +1492,7 @@ if st.session_state.phase == "ended":
  <div class="end-carbon-grid"><div><div class="end-metric-label">항해 시작</div><div class="end-start">{START_EMISSION}</div><div class="end-unit">탄소 배출량</div></div><div class="end-carbon-progress"><div class="end-progress-title">CARBON REDUCTION JOURNEY</div><div class="end-track"><div class="end-fill"></div></div><div class="end-progress-note">-{reduction_rate}% 감축</div></div><div style="border-left:1px solid #dce5e9;padding-left:28px"><div class="end-metric-label">최종 탄소 배출량</div><div class="end-final">{emission}</div><div class="end-unit">{'NET ZERO' if emission == 0 else 'FINAL EMISSION'}</div></div></div>
  <div class="end-target"><div class="end-target-mark">{'✓' if success else '!'}</div><div><div class="end-target-title">{target_title}</div><div class="end-target-desc">{target_desc}</div></div></div></section>
  <div class="end-bottom-grid"><section class="end-bottom-card"><div class="end-section-head"><div class="end-icon" style="background:#eaf1fb;color:#27619a">▣</div><div><div class="end-kicker">BUSINESS PERFORMANCE</div><div class="end-heading">기업 경영 성과</div></div></div><div class="end-stat-pair"><div class="end-stat"><div class="end-metric-label">최종 보유 자금</div><div class="end-stat-value">₩ {final_money}</div></div><div class="end-stat"><div class="end-metric-label">누적 운항 수익</div><div class="end-stat-value">₩ {total_income}</div></div></div></section>
- <section class="end-bottom-card"><div class="end-section-head"><div class="end-icon">♧</div><div><div class="end-kicker">FLEET OPERATIONS</div><div class="end-heading">선단 운영 성과</div></div></div><div class="end-stat-pair"><div class="end-stat"><div class="end-metric-label">최종 보유 선박 수</div><div class="end-stat-value">{fleet_count} <span style="font-size:14px;font-weight:500;color:#8796a5">척</span></div></div><div class="end-stat"><div class="end-metric-label">총 운항 횟수</div><div class="end-stat-value">{voyage_count} <span style="font-size:14px;font-weight:500;color:#8796a5">회</span></div></div></div><div style="margin-top:14px;color:#718096;font-size:12px">정산되지 않은 운항 선박: {unsettled_ship_count}척</div></section></div>
+ <section class="end-bottom-card"><div class="end-section-head"><div class="end-icon">♧</div><div><div class="end-kicker">FLEET OPERATIONS</div><div class="end-heading">선단 운영 성과</div></div></div><div class="end-stat-pair"><div class="end-stat"><div class="end-metric-label">최종 보유 선박 수</div><div class="end-stat-value">{fleet_count} <span style="font-size:14px;font-weight:500;color:#8796a5">척</span></div></div><div class="end-stat"><div class="end-metric-label">총 운항 횟수</div><div class="end-stat-value">{voyage_count} <span style="font-size:14px;font-weight:500;color:#8796a5">회</span></div></div></div></section></div>
  <div class="end-footer"><div class="end-quote">“바다를 바꾸는 것은 거대한 파도가 아니라, 올바른 방향으로 이어진 항해입니다.”<small>당신의 선택이 지속 가능한 바다의 내일을 만들었습니다.</small></div></div>
 </div>
 ''', unsafe_allow_html=True)
@@ -1656,11 +1510,8 @@ st.markdown(f"""
 st.title("관제 센터")
 st.caption("선단 운영 현황을 확인하고, 수익과 탄소 감축 기술을 관리하세요.")
 
-def advance_turn(expected_year=None):
+def advance_turn():
     """목적지 미배정 경고를 거친 뒤 실제로 1년 진행한다."""
-    clear_purchase_feedback()
-    if expected_year is not None and int(st.session_state.year) != int(expected_year):
-        return
     st.session_state.return_feedback = ""
     if st.session_state.phase == "ended" or st.session_state.get("event_pending") is not None:
         return
@@ -1670,20 +1521,20 @@ def advance_turn(expected_year=None):
         if ship.get("dest") and ship.get("status", ship.get("phase", "docked")) == "docked"
     ]
     if pending_departures:
+        st.session_state.departure_required_warning = True
         st.session_state.show_empty_destination_warning = False
         return
     if not st.session_state.get("show_empty_destination_warning", False):
         if not any(ship.get("dest") for ship in fleet_now):
             st.session_state.show_empty_destination_warning = True
             return
+    st.session_state.departure_required_warning = False
     st.session_state.show_empty_destination_warning = False
     st.session_state.confirm_empty_destination_turn = False
 
     old_year = int(st.session_state.year)
     new_year = min(END_YEAR, old_year + 1)
     if new_year == old_year:
-        return
-    if not allow_action_once("advance_turn"):
         return
     st.session_state.year = new_year
     # 이전 연도 의뢰는 다음 해로 넘어가면 자동 만료된다. 지정된 연도에만 새 의뢰를 만든다.
@@ -1777,7 +1628,7 @@ if _pending_ship_id is not None:
 
 with st.expander("🏢 회사 및 선단 관리", expanded=True):
     st.markdown(
-        f"**{st.session_state.registered_company_name}**  ·  선주 **{st.session_state.registered_captain_name}**",
+        f"**{st.session_state.company_name}**  ·  선주 **{st.session_state.captain_name}**",
         help="회사명과 선주 이름은 로그인 화면에서 설정합니다."
     )
     st.markdown(f"**보유 선박 ({len(st.session_state.fleet)}/{MAX_FLEET_SIZE})**")
@@ -1787,61 +1638,20 @@ with st.expander("🏢 회사 및 선단 관리", expanded=True):
             ship_status_label = "출항 대기 중"
         else:
             ship_status_label = {"docked": "부산항 정박", "outbound": "항해 중", "returning": "귀항 중"}.get(ship_status, "정박")
-        fixed_label = f" · 고정 목적항: {ship['fixed_destination']}" if ship.get("fixed_destination") else ""
-        st.write(f"🚢 **{ship['name']}** · {ship['type']} · 구매가 {money_label(ship['price'])} · 상태: {ship_status_label}{fixed_label}")
-        # 선단 관리 목록에서 각 선박의 이름을 바로 변경할 수 있다.
-        with st.form(f"fleet_rename_form_{ship['id']}"):
-            name_col, button_col = st.columns([4, 1])
-            with name_col:
-                edited_name = st.text_input(
-                    f"{ship['name']} 이름 변경", value=ship["name"],
-                    max_chars=12, key=f"fleet_rename_name_{ship['id']}"
-                )
-            with button_col:
-                st.write("")
-                rename_submit = st.form_submit_button("변경", use_container_width=True)
-            if rename_submit:
-                rename_ship(ship["id"], edited_name)
-                st.rerun()
+        st.write(f"🚢 **{ship['name']}** · {ship['type']} · 구매가 {money_label(ship['price'])} · 상태: {ship_status_label}")
     if st.session_state.fleet:
         managed = selected_ship()
         if managed:
-            if 4 in st.session_state.get("bought_tr", []):
-                fixed_options = destinations_for_ship(managed)
-                if fixed_options:
-                    current_fixed = managed.get("fixed_destination")
-                    fixed_choices = ["고정 목적항 없음"] + fixed_options
-                    fixed_index = fixed_choices.index(current_fixed) if current_fixed in fixed_choices else 0
-                    with st.form(f"fixed_destination_form_{managed['id']}"):
-                        chosen_fixed = st.selectbox(
-                            "선박 고정 목적항", fixed_choices, index=fixed_index,
-                            key=f"fixed_destination_choice_{managed['id']}"
-                        )
-                        fixed_submit = st.form_submit_button("고정 목적항 저장", use_container_width=True)
-                    if fixed_submit:
-                        old_fixed = managed.get("fixed_destination")
-                        new_fixed = None if chosen_fixed == "고정 목적항 없음" else chosen_fixed
-                        managed["fixed_destination"] = new_fixed
-                        if managed.get("status", "docked") == "docked":
-                            if new_fixed:
-                                managed["dest"] = new_fixed
-                            elif managed.get("dest") == old_fixed:
-                                managed["dest"] = None
-                        # 선박별 목적항 선택 위젯과 고정 목적항을 같은 값으로 맞춘다.
-                        st.session_state[f"destination_dropdown_{managed['id']}"] = new_fixed or fixed_options[0]
-                        if st.session_state.get("selected_ship_id") == managed.get("id"):
-                            st.session_state.selected_port = new_fixed
-                        set_message(
-                            f"{managed['name']}의 고정 목적항을 {new_fixed}으로 설정했습니다. 부산 귀항 후 자동 배정됩니다."
-                            if new_fixed else f"{managed['name']}의 고정 목적항 설정을 해제했습니다."
-                        )
-                        st.rerun()
-                    st.caption("고정 목적항은 선박별로 저장됩니다. 부산 귀항 후 목적항만 자동 배정되며 실제 출항은 직접 눌러야 합니다.")
-                else:
-                    st.caption("현재 선종이 이용할 수 있는 목적항이 없습니다.")
+            with st.form(f"rename_ship_form_{managed['id']}"):
+                edited_name = st.text_input("선박 이름 변경", value=managed["name"], key=f"rename_ship_name_{managed['id']}")
+                rename_submit = st.form_submit_button("이름 변경", use_container_width=True)
+                if rename_submit:
+                    rename_ship(managed["id"], edited_name)
+                    st.rerun()
             sell_rate = 0.70 + ((int(st.session_state.year) + int(managed["id"])) % 11) / 100
             st.caption(f"올해 예상 중고 판매 환급률: {round(sell_rate*100)}% · 예상 환급액 {money_label(int(managed.get('price',0)*sell_rate))}")
-            if st.button("선택한 선박 판매", key=f"sell_ship_{managed['id']}", disabled=(st.session_state.phase == "ended"), use_container_width=True):
+            cannot_sell = len(st.session_state.fleet) <= 1 or managed.get("status", "docked") != "docked"
+            if st.button("선택한 선박 판매", key=f"sell_ship_{managed['id']}", disabled=cannot_sell, use_container_width=True):
                 sell_ship(managed["id"])
                 st.rerun()
             if len(st.session_state.fleet) <= 1:
@@ -1851,15 +1661,9 @@ with st.expander("🏢 회사 및 선단 관리", expanded=True):
     else:
         st.info("보유 선박이 없습니다. 아래 선박 구매 메뉴에서 새 선박을 구매하세요.")
 
-# 이벤트 팝업은 전용 fragment에서 관리한다.
-# 선택 시 이 fragment만 다시 실행되므로 지도와 선박 애니메이션은 유지된다.
-@st.fragment(key="event_popup_host")
-def render_event_popup():
-    if st.session_state.event_pending and st.session_state.phase != "ended":
-        show_event_dialog()
-
-
-render_event_popup()
+# 미해결 이벤트는 지도 위 인라인이 아닌 모달 팝업으로 표시한다.
+if st.session_state.event_pending and st.session_state.phase != "ended":
+    show_event_dialog()
 
 st.subheader("선박 상태 현황")
 status_rows = []
@@ -1907,14 +1711,14 @@ with map_col:
                 # 이번 턴의 애니메이션 스냅샷을 그대로 JS에 전달한다.
                 # 여기서 일반 선박 상태로 다시 변환하면 end/turn_step/왕복 항로가 사라져
                 # 기존 Leaflet 애니메이션이 재생되지 않는다.
-                [{"id": ship["id"], "name": html.escape(str(ship["name"]), quote=True), "type": html.escape(str(ship["type"]), quote=True),
+                [{"id": ship["id"], "name": ship["name"], "type": ship["type"],
                   "route": ship["route"], "destination": ship.get("destination"),
                   "phase": ship.get("phase", "outbound"), "pos": ship["pos"],
                   "end": ship["end"], "total": ship["total"],
                   "turn_step": ship.get("turn_step", True), "paused": ship.get("paused", False)}
                  for ship in turn_animation_ships]
                 if turn_animation_ships else
-                [{"id": ship["id"], "name": html.escape(str(ship["name"]), quote=True), "type": html.escape(str(ship["type"]), quote=True),
+                [{"id": ship["id"], "name": ship["name"], "type": ship["type"],
                   "route": SEA_ROUTES.get(ship.get("dest"), [PORT_COORDS["부산"]]),
                   "destination": ship.get("dest"), "phase": ship.get("status", "docked"),
                   "pos": round((max(1, int(ship.get("leg_years", 1))) - max(0, min(max(1, int(ship.get("leg_years", 1))), int(ship.get("years_left", 0))))) * 5),
@@ -1927,31 +1731,18 @@ with map_col:
         config_json = json.dumps(map_config, ensure_ascii=False).replace("</", "<\\/")
         map_html = r'''<!doctype html>
     <html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" onerror="document.getElementById('map-error').style.display='flex';document.getElementById('map').style.display='none'">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
     <style>
     html,body{margin:0;padding:0;background:#071521;font-family:sans-serif}#map{height:430px;width:100%;border-radius:10px;overflow:hidden}
     .ship-icon{font-size:25px;line-height:32px;text-align:center;width:34px;height:34px;filter:drop-shadow(0 1px 2px #000)}
     .leaflet-tooltip.port-label{background:rgba(7,21,33,.94);color:#fff;border:1px solid #678091;box-shadow:none;font-weight:600}.leaflet-tooltip.port-label:before{display:none}
     .leaflet-control-attribution{font-size:9px!important}
     </style></head><body><div id="map" aria-label="선박 항로 지도"></div>
-    <div id="map-error" style="display:none;height:430px;width:100%;align-items:center;justify-content:center;background:#f3f6fc;color:#b42318;font-weight:700;border-radius:10px">지도를 불러오지 못했습니다</div>
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" onerror="document.getElementById('map-error').style.display='flex';document.getElementById('map').style.display='none'"></script><script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><script>
     (function(){
-     const errorBox=document.getElementById('map-error');
-     const mapBox=document.getElementById('map');
-     if(typeof L==='undefined'){errorBox.style.display='flex';mapBox.style.display='none';return;}
      const C=__CONFIG__;
      const map=L.map('map',{zoomControl:true,preferCanvas:true}).setView([30,125],3);
-     const tileLayer=L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:18,attribution:'&copy; OpenStreetMap'});
-     let loadedTiles=0,failedTiles=0;
-     tileLayer.on('tileload',()=>{loadedTiles++;});
-     tileLayer.on('tileerror',()=>{
-       failedTiles++;
-       setTimeout(()=>{
-         if(loadedTiles===0&&failedTiles>0){errorBox.style.display='flex';mapBox.style.display='none';}
-       },2500);
-     });
-     tileLayer.addTo(map);
+     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:18,attribution:'&copy; OpenStreetMap'}).addTo(map);
      const portsLayer=L.layerGroup().addTo(map);
      (C.ports||[]).forEach(p=>{
        const b=p.name==='부산';
@@ -2041,12 +1832,11 @@ with map_col:
                     pin_names = ["부산"] + [d["name"] for d in DESTINATIONS]
                     if 0 <= int(point_index) < len(pin_names):
                         picked = pin_names[int(point_index)]
-                pin_selection_key = (st.session_state.get("selected_ship_id"), picked)
-                if picked and pin_selection_key != st.session_state.get("last_map_pin_selection"):
-                    st.session_state.last_map_pin_selection = pin_selection_key
+                if picked:
                     if picked == "부산":
                         st.session_state.selected_port = None
                         st.session_state.show_empty_destination_warning = False
+                        st.session_state.departure_required_warning = False
                     elif assign_destination(picked, selected_ship()):
                         st.session_state.show_empty_destination_warning = False
         except (AttributeError, TypeError, KeyError, ValueError):
@@ -2054,27 +1844,21 @@ with map_col:
 
 
     # 운항 처리 결과는 지도 아래, 다음 해로 조작부 바로 위에 표시한다.
-    _current_message = str(st.session_state.get("msg", "") or "")
-    _current_message_type = st.session_state.get("msg_type", "success")
-    st.session_state.msg = ""
-    st.session_state.msg_type = "success"
-    _return_messages = [part.strip() for part in str(st.session_state.get("return_feedback", "")).split("  ") if part.strip()]
-    st.session_state.return_feedback = ""
-    if _current_message or _return_messages:
+    _success_messages = []
+    if st.session_state.get("msg"):
+        _success_messages.append(str(st.session_state.msg))
+        st.session_state.msg = ""
+    if st.session_state.get("return_feedback"):
+        _success_messages.extend(
+            part.strip() for part in str(st.session_state.return_feedback).split("  ") if part.strip()
+        )
+        st.session_state.return_feedback = ""
+    if _success_messages:
         with st.container(border=True):
             st.markdown("**운항 처리 결과**")
-            if _current_message:
-                if _current_message_type == "error":
-                    st.error(_current_message)
-                elif _current_message_type == "warning":
-                    st.warning(_current_message)
-                else:
-                    st.success(_current_message)
-            for _return_message in dict.fromkeys(_return_messages):
-                st.success(_return_message)
+            st.success("\n\n".join(dict.fromkeys(_success_messages)))
 
-    _has_pending_destination = any(vessel.get("dest") and vessel.get("status", vessel.get("phase", "docked")) == "docked" for vessel in st.session_state.get("fleet", []))
-    if _has_pending_destination:
+    if st.session_state.get("departure_required_warning", False):
         st.markdown(
             "<div style='background:#fff1f2;border:1px solid #dc2626;color:#b91c1c;padding:12px 14px;border-radius:10px;font-weight:750;margin:8px 0'>⚠️ 목적지를 선택했습니다. 먼저 <b>출항 명령</b> 버튼을 눌러 선박을 출항시켜 주세요.</div>",
             unsafe_allow_html=True,
@@ -2086,14 +1870,14 @@ with map_col:
         # 목적지를 선택하면 assign_destination()에서 이 경고가 즉시 해제된다.
         if st.button("그래도 다음 해로 진행", key="confirm_empty_destination_turn_button", type="primary", use_container_width=True, disabled=(st.session_state.phase == "ended" or st.session_state.event_pending is not None)):
             st.session_state.confirm_empty_destination_turn = True
-            advance_turn(int(st.session_state.year))
+            advance_turn()
             st.rerun()
     # 목적지가 핀으로만 선택된 상태에서는 출항 명령 전까지 다음 해 진행을 잠근다.
     if not st.session_state.get("show_empty_destination_warning", False):
         st.button("다음 해로 ▶", key="advance_turn_button", type="primary",
                    disabled=(st.session_state.phase == "ended" or st.session_state.event_pending is not None
-                             or _has_pending_destination),
-                   use_container_width=True, on_click=advance_turn, args=(int(st.session_state.year),))
+                             or st.session_state.get("departure_required_warning", False)),
+                   use_container_width=True, on_click=advance_turn)
     if st.session_state.get("quest_accept_feedback"):
         st.success(st.session_state.quest_accept_feedback)
         st.session_state.quest_accept_feedback = ""
@@ -2132,10 +1916,10 @@ with info_col:
             "배정 선박",
             options=[item["id"] for item in st.session_state.fleet],
             format_func=lambda sid: next(item["name"] + " · " + item["type"] for item in st.session_state.fleet if item["id"] == sid),
-            key="selected_ship_id", on_change=clear_purchase_feedback,
+            key="selected_ship_id",
         )
     ship = selected_ship()
-    if ship and ship.get("status", "docked") == "docked" and ship.get("dest"):
+    if ship and not st.session_state.selected_port and ship.get("dest"):
         st.session_state.selected_port = ship.get("dest")
     selected_port = st.session_state.selected_port
     can_choose = bool(ship and ship.get("status", ship.get("phase", "docked")) == "docked" and st.session_state.phase != "ended")
@@ -2161,13 +1945,10 @@ with info_col:
         if can_choose and available_destinations:
             with st.expander("목적항 선택 / 변경", expanded=not (selected_port and selected_port in available_destinations)):
                 default_index = available_destinations.index(selected_port) if selected_port in available_destinations else 0
-                picked_port = st.selectbox(
-                    "목적항", available_destinations, index=default_index,
-                    key=f"destination_dropdown_{ship['id']}", on_change=clear_purchase_feedback
-                )
+                picked_port = st.selectbox("목적항", available_destinations, index=default_index, key="destination_dropdown")
                 if st.button("목적항 설정", key="destination_dropdown_apply", use_container_width=True):
                     if assign_destination(picked_port, ship):
-                        set_message(f"{ship['name']}의 목적지가 {picked_port}(으)로 설정되었습니다. 출항 버튼을 눌러 운항을 시작하세요.")
+                        st.session_state.msg = f"{ship['name']}의 목적지가 {picked_port}(으)로 설정되었습니다. 출항 버튼을 눌러 운항을 시작하세요."
                     st.rerun()
         if selected_port and selected_port in available_destinations:
             destination = next((d for d in DESTINATIONS if d["name"] == selected_port), None)
@@ -2180,7 +1961,7 @@ with info_col:
                 "상하이": "중국의 주요 국제 무역항이자 대형 컨테이너 항만입니다.",
                 "싱가포르": "MPA Green Ship Programme은 요건을 충족하고 사전 등록한 선박에 연료·기술 조건에 따라 항만 요금 감면을 제공합니다. 게임에서는 기존 엔진 업그레이드를 자격의 단순화된 대리 기준으로 사용합니다.",
                 "로테르담": "항만은 Green Award 및 환경 데이터·선박별 조건에 따른 인센티브를 운영합니다. 게임은 실제 요금 자격을 단순화해 적용합니다.",
-                "케이프타운": "남아프리카공화국 남서부의 주요 항만으로 인도양과 대서양을 잇는 항로에 자리합니다.",
+                "타이베이": "대만 북부의 주요 항만입니다.",
                 "홍콩": "아시아의 주요 항만이자 환적 거점입니다.",
                 "로스앤젤레스": "Port of Los Angeles의 ESI 프로그램은 등록된 선박의 ESI 점수 구간에 따라 입항별 인센티브를 제공합니다. 게임은 이를 단순화해 적용합니다.",
             }
@@ -2244,21 +2025,17 @@ with info_col:
             if st.button(departure_label, key="selected_port_depart", disabled=not can_choose, use_container_width=True, type="primary"):
                 start_voyage(selected_port)
                 st.rerun()
-            if (ship and (
-                    (ship.get("status", ship.get("phase")) == "docked" and ship.get("dest"))
-                    or (ship.get("status", ship.get("phase")) == "outbound"
-                        and int(ship.get("trip_elapsed", 0)) == 0
-                        and ship.get("waiting_for_turn", False)))):
+            if (ship and ship.get("status", ship.get("phase")) == "outbound"
+                    and int(ship.get("trip_elapsed", 0)) == 0
+                    and ship.get("waiting_for_turn", False)):
                 if st.button("↩ 출항 취소 · 목적지 재설정", key="cancel_departure_button", use_container_width=True):
                     cancel_departure(ship)
                     st.rerun()
         else:
             pending_ship = selected_ship()
-            if (pending_ship and (
-                    (pending_ship.get("status", pending_ship.get("phase")) == "docked" and pending_ship.get("dest"))
-                    or (pending_ship.get("status", pending_ship.get("phase")) == "outbound"
-                        and int(pending_ship.get("trip_elapsed", 0)) == 0
-                        and pending_ship.get("waiting_for_turn", False)))):
+            if (pending_ship and pending_ship.get("status", pending_ship.get("phase")) == "outbound"
+                    and int(pending_ship.get("trip_elapsed", 0)) == 0
+                    and pending_ship.get("waiting_for_turn", False)):
                 if st.button("↩ 출항 취소 · 목적지 재설정", key="cancel_departure_button_empty", use_container_width=True):
                     cancel_departure(pending_ship)
                     st.rerun()
@@ -2283,13 +2060,13 @@ with eq_tab:
                 stage = tech["stages"][level]
                 st.button(
                     f"{stage['label']} 연구하기", key=f"research_{tech['id']}",
-                    disabled=(st.session_state.phase == "ended"),
-                    use_container_width=True, on_click=research_next_stage, args=(tech["id"], level)
+                    disabled=(st.session_state.phase == "ended" or st.session_state.money < stage["price"]),
+                    use_container_width=True, on_click=research_next_stage, args=(tech["id"],)
                 )
             else:
                 st.success("기술 연구 완료")
 with tr_tab:
-    st.caption("목적항 자동 고정 시스템은 1회 구매 후 선단의 각 선박에서 고정 목적항을 따로 설정할 수 있습니다. 부산 귀항 후 목적항이 자동 배정되며 출항은 직접 명령합니다.")
+
     for item in TRANSPORT:
         row = st.columns([4, 1, 1])
         if item["id"] == 3:
@@ -2304,7 +2081,7 @@ with tr_tab:
                 if level >= 3:
                     st.button("연구 완료", key="tr_done_3", disabled=True, use_container_width=True)
                 else:
-                    st.button(f"{level + 1}단계", key=f"tr_3_{level}", disabled=(st.session_state.phase == "ended" or st.session_state.money < next_price), use_container_width=True, on_click=buy_transport, args=(3, level))
+                    st.button(f"{level + 1}단계", key=f"tr_3_{level}", disabled=(st.session_state.phase == "ended" or st.session_state.money < next_price), use_container_width=True, on_click=buy_transport, args=(3,))
             with row[2]:
                 st.write("완료" if level >= 3 else money_label(next_price))
         else:
@@ -2329,7 +2106,7 @@ with ship_tab:
         st.markdown("### 🚢 신규 선박 구매")
         with st.form("buy_ship_form", clear_on_submit=True):
             new_type = st.selectbox("선박 종류", list(SHIP_TYPES.keys()))
-            new_name = st.text_input("선박 이름", placeholder="예: 푸른 항해호", max_chars=12)
+            new_name = st.text_input("선박 이름", placeholder="예: 푸른 항해호")
             st.caption(f"예상 구매 비용: {money_label(ship_price(new_type))} · 연구 완료 {sum(int(v) for v in st.session_state.research_levels.values())}단계 기준 · {SHIP_TYPES[new_type]['description']}")
             submitted = st.form_submit_button("선박 구매", disabled=(st.session_state.phase == "ended"), use_container_width=True, type="primary")
             if submitted:
