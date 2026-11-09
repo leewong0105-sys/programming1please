@@ -1148,6 +1148,9 @@ def settle_return(ship):
                  "congestion_modifier": 0.0, "is_urgent_quest": False})
     set_ship_status(ship, "docked")
     sync_ship_map_progress(ship)
+    # 선박별 목적항 선택 위젯도 고정 목적항과 동기화한다.
+    # 위젯 키가 선박마다 분리되어 있어야 다른 선박의 이전 선택이 덮어쓰지 않는다.
+    st.session_state[f"destination_dropdown_{ship['id']}"] = fixed_destination or destinations_for_ship(ship)[0]
     if fixed_destination and st.session_state.get("selected_ship_id") == ship.get("id"):
         st.session_state.selected_port = fixed_destination
     loyalty_discount_paid = int(ship.get("loyalty_discount_paid", 0) or 0)
@@ -1364,22 +1367,28 @@ def resolve_event(choice_index):
         st.session_state.msg += " 회사 전체 배출량 0% 달성! 탄소중립 성공!"
 
 
+def handle_event_choice(choice_index):
+    """이벤트를 처리한 뒤 지도 바깥의 앱 전체가 아닌 이벤트 영역만 갱신한다."""
+    resolve_event(choice_index)
+    # 이벤트 팝업을 연 전용 fragment만 다시 실행한다.
+    # event_pending이 None이므로 팝업은 닫히고 지도 iframe은 다시 생성되지 않는다.
+    st.rerun(scope="event_popup_host")
+
+
 @st.dialog("⚠️ 긴급 해상 이벤트", dismissible=False)
 def show_event_dialog():
-    """이벤트 선택지를 표시하고, 선택이 끝나면 팝업을 닫는다."""
+    """이벤트 선택지를 표시한다. 선택 처리는 fragment callback에서 수행한다."""
     event = st.session_state.get("event_pending")
     if event and st.session_state.phase != "ended":
         st.subheader(f"⚠️ {event['title']}")
         st.caption(f"발생 선박: {event.get('ship_name', '선박')} · {event.get('ship_type', '선종 미상')}")
         st.write(event["description"])
         for i, choice in enumerate(event["choices"]):
-            if st.button(
+            st.button(
                 choice["label"], key=f"event_modal_choice_{event['title']}_{i}",
                 use_container_width=True, type="primary" if i == 0 else "secondary",
-            ):
-                resolve_event(i)
-                # 선택 즉시 이벤트 팝업을 닫기 위해 앱 전체를 다시 그린다.
-                st.rerun()
+                on_click=handle_event_choice, args=(i,),
+            )
 
 
 def route_position(route, fraction):
@@ -1780,15 +1789,23 @@ with st.expander("🏢 회사 및 선단 관리", expanded=True):
             ship_status_label = {"docked": "부산항 정박", "outbound": "항해 중", "returning": "귀항 중"}.get(ship_status, "정박")
         fixed_label = f" · 고정 목적항: {ship['fixed_destination']}" if ship.get("fixed_destination") else ""
         st.write(f"🚢 **{ship['name']}** · {ship['type']} · 구매가 {money_label(ship['price'])} · 상태: {ship_status_label}{fixed_label}")
+        # 선단 관리 목록에서 각 선박의 이름을 바로 변경할 수 있다.
+        with st.form(f"fleet_rename_form_{ship['id']}"):
+            name_col, button_col = st.columns([4, 1])
+            with name_col:
+                edited_name = st.text_input(
+                    f"{ship['name']} 이름 변경", value=ship["name"],
+                    max_chars=12, key=f"fleet_rename_name_{ship['id']}"
+                )
+            with button_col:
+                st.write("")
+                rename_submit = st.form_submit_button("변경", use_container_width=True)
+            if rename_submit:
+                rename_ship(ship["id"], edited_name)
+                st.rerun()
     if st.session_state.fleet:
         managed = selected_ship()
         if managed:
-            with st.form(f"rename_ship_form_{managed['id']}"):
-                edited_name = st.text_input("선박 이름 변경", value=managed["name"], max_chars=12, key=f"rename_ship_name_{managed['id']}")
-                rename_submit = st.form_submit_button("이름 변경", use_container_width=True)
-                if rename_submit:
-                    rename_ship(managed["id"], edited_name)
-                    st.rerun()
             if 4 in st.session_state.get("bought_tr", []):
                 fixed_options = destinations_for_ship(managed)
                 if fixed_options:
@@ -1810,6 +1827,8 @@ with st.expander("🏢 회사 및 선단 관리", expanded=True):
                                 managed["dest"] = new_fixed
                             elif managed.get("dest") == old_fixed:
                                 managed["dest"] = None
+                        # 선박별 목적항 선택 위젯과 고정 목적항을 같은 값으로 맞춘다.
+                        st.session_state[f"destination_dropdown_{managed['id']}"] = new_fixed or fixed_options[0]
                         if st.session_state.get("selected_ship_id") == managed.get("id"):
                             st.session_state.selected_port = new_fixed
                         set_message(
@@ -1832,9 +1851,15 @@ with st.expander("🏢 회사 및 선단 관리", expanded=True):
     else:
         st.info("보유 선박이 없습니다. 아래 선박 구매 메뉴에서 새 선박을 구매하세요.")
 
-# 미해결 이벤트는 지도 위 인라인이 아닌 모달 팝업으로 표시한다.
-if st.session_state.event_pending and st.session_state.phase != "ended":
-    show_event_dialog()
+# 이벤트 팝업은 전용 fragment에서 관리한다.
+# 선택 시 이 fragment만 다시 실행되므로 지도와 선박 애니메이션은 유지된다.
+@st.fragment(key="event_popup_host")
+def render_event_popup():
+    if st.session_state.event_pending and st.session_state.phase != "ended":
+        show_event_dialog()
+
+
+render_event_popup()
 
 st.subheader("선박 상태 현황")
 status_rows = []
@@ -2136,7 +2161,10 @@ with info_col:
         if can_choose and available_destinations:
             with st.expander("목적항 선택 / 변경", expanded=not (selected_port and selected_port in available_destinations)):
                 default_index = available_destinations.index(selected_port) if selected_port in available_destinations else 0
-                picked_port = st.selectbox("목적항", available_destinations, index=default_index, key="destination_dropdown", on_change=clear_purchase_feedback)
+                picked_port = st.selectbox(
+                    "목적항", available_destinations, index=default_index,
+                    key=f"destination_dropdown_{ship['id']}", on_change=clear_purchase_feedback
+                )
                 if st.button("목적항 설정", key="destination_dropdown_apply", use_container_width=True):
                     if assign_destination(picked_port, ship):
                         set_message(f"{ship['name']}의 목적지가 {picked_port}(으)로 설정되었습니다. 출항 버튼을 눌러 운항을 시작하세요.")
