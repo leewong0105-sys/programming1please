@@ -20,11 +20,11 @@ MAX_FISHING_SHIPS = 2  # 어선은 최대 2척
 DESTINATIONS = [
     {"name": "도쿄", "years": 1, "income": 15 * MONEY_SCALE, "fee": 2 * MONEY_SCALE},
     {"name": "상하이", "years": 1, "income": 17 * MONEY_SCALE, "fee": 2.5 * MONEY_SCALE},
-    {"name": "타이베이", "years": 1, "income": 16 * MONEY_SCALE, "fee": 2 * MONEY_SCALE},
     {"name": "홍콩", "years": 2, "income": 32 * MONEY_SCALE, "fee": 3 * MONEY_SCALE},
     {"name": "싱가포르", "years": 2, "income": 36 * MONEY_SCALE, "fee": 4 * MONEY_SCALE},
     {"name": "로테르담", "years": 3, "income": 57 * MONEY_SCALE, "fee": 3.5 * MONEY_SCALE},
     {"name": "로스앤젤레스", "years": 3, "income": 54 * MONEY_SCALE, "fee": 4 * MONEY_SCALE},
+    {"name": "케이프타운", "years": 3, "income": 60 * MONEY_SCALE, "fee": 4 * MONEY_SCALE},
 ]
 
 TRANSPORT = [
@@ -115,7 +115,7 @@ PORT_COORDS = {
     "상하이": (31.2304, 121.4737),
     "싱가포르": (1.3521, 103.8198),
     "로테르담": (51.9244, 4.4777),
-    "타이베이": (25.0330, 121.5654),
+    "케이프타운": (-33.9249, 18.4241),
     "홍콩": (22.3193, 114.1694),
     "로스앤젤레스": (33.7405, -118.2720),
 }
@@ -126,7 +126,7 @@ SEA_ROUTES = {
     "상하이": [PORT_COORDS["부산"], (34.2, 127.0), (32.5, 125.5), PORT_COORDS["상하이"]],
     "싱가포르": [PORT_COORDS["부산"], (30.0, 125.0), (25.0, 121.0), (20.0, 117.0), (14.0, 112.0), (8.0, 108.0), PORT_COORDS["싱가포르"]],
     "로테르담": [PORT_COORDS["부산"], (30.0, 125.0), (22.0, 120.0), (15.0, 115.0), (8.0, 105.0), (1.5, 103.5), (-5.0, 105.0), (-10.0, 110.0), (-20.0, 95.0), (-30.0, 65.0), (-25.0, 35.0), (-10.0, 15.0), (5.0, 5.0), (20.0, -5.0), (35.0, -10.0), (43.0, -8.0), (48.0, -3.0), PORT_COORDS["로테르담"]],
-    "타이베이": [PORT_COORDS["부산"], (32.0, 126.0), (28.0, 124.0), PORT_COORDS["타이베이"]],
+    "케이프타운": [PORT_COORDS["부산"], (30.0, 125.0), (20.0, 120.0), (10.0, 110.0), (1.3, 104.0), (-8.0, 90.0), (-20.0, 65.0), (-30.0, 40.0), PORT_COORDS["케이프타운"]],
     "홍콩": [PORT_COORDS["부산"], (30.0, 125.0), (25.0, 121.0), PORT_COORDS["홍콩"]],
     "로스앤젤레스": [PORT_COORDS["부산"], (30.0, 145.0), (25.0, 170.0), (30.0, -160.0), (33.0, -140.0), (34.0, -120.0), PORT_COORDS["로스앤젤레스"]],
     "LNG 터미널": [PORT_COORDS["부산"], (30.0, 125.0), (20.0, 118.0), (10.0, 110.0), SPECIAL_PORTS["LNG 터미널"]["coords"]],
@@ -304,6 +304,7 @@ def init():
         "weather_note": "",
         "selected_port": None,
         "event_pending": None,
+        "event_result_feedback": None,
         "show_empty_destination_warning": False,
         "confirm_empty_destination_turn": False,
         "departure_required_warning": False,
@@ -374,6 +375,7 @@ def reset_game():
         "weather_note": "",
         "selected_port": None,
         "event_pending": None,
+        "event_result_feedback": None,
         "show_empty_destination_warning": False,
         "confirm_empty_destination_turn": False,
         "departure_required_warning": False,
@@ -1220,30 +1222,42 @@ def resolve_event(choice_index):
     st.session_state.last_event_title = event["title"]
     st.session_state.msg = result
     st.session_state.event_pending = None
+    st.session_state.event_result_feedback = f"{event['title']} 처리 결과: {result}"
     add_history()
     if current_emission() == 0 and st.session_state.phase != "ended":
         st.session_state.phase = "ended"
         st.session_state.result = "success"
         st.session_state.msg += " 회사 전체 배출량 0% 달성! 탄소중립 성공!"
-    # st.dialog는 fragment처럼 동작하므로, 이벤트 해결 후 전체 앱을 다시 그려 팝업을 닫는다.
-    st.rerun()
+    # 이벤트 창은 st.dialog의 부분 재실행으로만 갱신한다.
+    # 전체 앱을 rerun하면 지도 iframe과 JS 궤적이 초기화되므로 여기서는 rerun하지 않는다.
 
 
 @st.dialog("⚠️ 긴급 해상 이벤트", dismissible=False)
 def show_event_dialog():
-    """미해결 해상 사건을 모달 팝업으로 표시한다."""
+    """이벤트 선택과 처리 결과를 같은 팝업에서 순서대로 보여준다."""
     event = st.session_state.get("event_pending")
-    if not event or st.session_state.phase == "ended":
+    if event and st.session_state.phase != "ended":
+        st.subheader(f"⚠️ {event['title']}")
+        st.caption(f"발생 선박: {event.get('ship_name', '선박')} · {event.get('ship_type', '선종 미상')}")
+        st.write(event["description"])
+        st.caption("선택을 완료하면 현재 항해 궤적을 유지한 채 처리 결과를 확인할 수 있습니다.")
+        for i, choice in enumerate(event["choices"]):
+            if st.button(
+                choice["label"], key=f"event_modal_choice_{event['title']}_{i}",
+                use_container_width=True, type="primary" if i == 0 else "secondary",
+            ):
+                resolve_event(i)
         return
-    st.subheader(f"⚠️ {event['title']}")
-    st.caption(f"발생 선박: {event.get('ship_name', '선박')} · {event.get('ship_type', '선종 미상')}")
-    st.write(event["description"])
-    for i, choice in enumerate(event["choices"]):
-        if st.button(
-            choice["label"], key=f"event_modal_choice_{event['title']}_{i}",
-            use_container_width=True, type="primary" if i == 0 else "secondary",
-        ):
-            resolve_event(i)
+
+    feedback = st.session_state.get("event_result_feedback")
+    if feedback:
+        st.subheader("이벤트 처리 결과")
+        st.success(feedback)
+        st.caption("선박의 항해는 선택 전의 진행 위치에서 이어집니다.")
+        if st.button("확인", key="event_result_confirm", type="primary", use_container_width=True):
+            st.session_state.event_result_feedback = None
+            if st.session_state.phase == "ended":
+                st.rerun()
 
 
 def route_position(route, fraction):
@@ -1662,7 +1676,8 @@ with st.expander("🏢 회사 및 선단 관리", expanded=True):
         st.info("보유 선박이 없습니다. 아래 선박 구매 메뉴에서 새 선박을 구매하세요.")
 
 # 미해결 이벤트는 지도 위 인라인이 아닌 모달 팝업으로 표시한다.
-if st.session_state.event_pending and st.session_state.phase != "ended":
+if ((st.session_state.event_pending and st.session_state.phase != "ended")
+        or st.session_state.get("event_result_feedback")):
     show_event_dialog()
 
 st.subheader("선박 상태 현황")
@@ -1961,7 +1976,7 @@ with info_col:
                 "상하이": "중국의 주요 국제 무역항이자 대형 컨테이너 항만입니다.",
                 "싱가포르": "MPA Green Ship Programme은 요건을 충족하고 사전 등록한 선박에 연료·기술 조건에 따라 항만 요금 감면을 제공합니다. 게임에서는 기존 엔진 업그레이드를 자격의 단순화된 대리 기준으로 사용합니다.",
                 "로테르담": "항만은 Green Award 및 환경 데이터·선박별 조건에 따른 인센티브를 운영합니다. 게임은 실제 요금 자격을 단순화해 적용합니다.",
-                "타이베이": "대만 북부의 주요 항만입니다.",
+                "케이프타운": "남아프리카공화국 남서부의 주요 항만으로 인도양과 대서양을 잇는 항로에 자리합니다.",
                 "홍콩": "아시아의 주요 항만이자 환적 거점입니다.",
                 "로스앤젤레스": "Port of Los Angeles의 ESI 프로그램은 등록된 선박의 ESI 점수 구간에 따라 입항별 인센티브를 제공합니다. 게임은 이를 단순화해 적용합니다.",
             }
