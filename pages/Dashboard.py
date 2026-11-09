@@ -157,6 +157,7 @@ def load_dashboard_data():
         "company": escape(str(st.session_state.get("company_name") or "투더넷")),
         "fleet": st.session_state.get("fleet", []) or [],
         "history": history,
+        "voyage_history": st.session_state.get("voyage_history", []) or [],
         "events": st.session_state.get("event_log", []) or [],
         "research_levels": st.session_state.get("research_levels", {}) or {},
         "bought_transport": set(st.session_state.get("bought_tr", []) or []),
@@ -518,7 +519,7 @@ def render_upgrades(bought_transport, transport_levels):
     st.markdown("</div>", unsafe_allow_html=True)
 
 
-def render_management_history(history, year, money_now, emission):
+def render_management_history(history, voyage_history, year, money_now, emission):
     """연도별 자금·탄소 배출량 그래프와 과거 기록 표를 표시합니다."""
     st.markdown(
         '<div class="panel"><div class="ptitle">📊 경영 기록</div>'
@@ -526,7 +527,7 @@ def render_management_history(history, year, money_now, emission):
         unsafe_allow_html=True,
     )
 
-    graph_tab, record_tab = st.tabs(["지표 그래프", "과거 기록"])
+    graph_tab, record_tab, voyage_tab = st.tabs(["지표 그래프", "과거 기록", "항해별 수익"])
 
     with graph_tab:
         yearly_data = {}
@@ -653,6 +654,24 @@ def render_management_history(history, year, money_now, emission):
         else:
             st.caption("아직 저장된 경영 기록이 없습니다.")
 
+    with voyage_tab:
+        if voyage_history:
+            voyage_rows = [
+                {
+                    "정산 연도": f"{to_int(item.get('year'), START_YEAR)}년",
+                    "선박": str(item.get("ship_name", "선박")),
+                    "선종": str(item.get("ship_type", "—")),
+                    "목적지": str(item.get("destination", "—")),
+                    "운임 수익": format_money(item.get("income")),
+                    "항만 비용": format_money(to_int(item.get("destination_fee")) + to_int(item.get("busan_fee"))),
+                    "비용 차감 후": format_money(item.get("net_income")),
+                }
+                for item in reversed(voyage_history)
+            ]
+            st.dataframe(voyage_rows, use_container_width=True, hide_index=True)
+        else:
+            st.caption("아직 정산이 완료된 항해가 없습니다.")
+
     st.markdown("</div>", unsafe_allow_html=True)
 
 
@@ -720,7 +739,7 @@ def build_management_advice(phase, year, money_now, emission, next_checkpoint_ye
 
 
 def render_recent_events(events):
-    """최근에 발생한 이벤트 기록을 최대 3개까지 표시합니다."""
+    """해상 사건과 긴급 운송 의뢰 기록을 최근 순서로 표시합니다."""
     st.markdown(
         '<div class="panel"><div class="ptitle">♧ 최근 이벤트</div>'
         '<div class="psub">최근 발생한 주요 경영 이벤트</div>',
@@ -906,6 +925,7 @@ def main():
 
     render_management_history(
         history,
+        dashboard_data["voyage_history"],
         current_year,
         current_money,
         current_emission,
